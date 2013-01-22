@@ -1,0 +1,4 @@
+
+dummy <- function(data) {
+	"dummy"
+}
