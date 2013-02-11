@@ -93,7 +93,7 @@ read.xlsx.wiseDir = function (dir){
 						}
 					}
 					## replace Student.Work with Student.Work.Part.1
-					if (length(which(names(full) == "Student.Work")) == 1)?{
+					if (length(which(names(full) == "Student.Work")) == 1){
 						names(full)[which(names(full) == "Student.Work")] = "Student.Work.Part.1";
 					}
 					## look for a mismatch error between number of cols
