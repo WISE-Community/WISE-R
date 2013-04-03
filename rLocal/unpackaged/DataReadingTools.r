@@ -24,6 +24,10 @@ library(xlsx);
 ## The newWISEDF function creates a data frame that contains all data from the given directory
 ## Since this is a "flat" data.frame, i.e., the different files and tabs are all stored in the
 ## same data.frame columns have been added to differentiate between runs, workgroups, etc.
+## UPDATES:
+### - excel file now contains a workgroup Id column, will check for this
+#\name{read.xlsx.wiseDir}
+#\description
 read.xlsx.wiseDir = function (dir){
 	files = list.files(dir);
 	df = data.frame();
@@ -33,14 +37,15 @@ read.xlsx.wiseDir = function (dir){
 	sheetCounts = numeric();
 	for (f in files){
 		## don't include any files in temporary format
-		if (substr(f,0,1) != "~"){
+		if (substr(f,0,1) != "~"  && grepl(".xl", f)[1]){
 			dirf = paste(dir, f, sep="");
 			sheetCount = countExcelSheets(dirf);
 			sheetCounts = c(sheetCounts, sheetCount);
 			for (s in 1:sheetCount){
 				# get first row
 				head = read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=1, stringsAsFactors = FALSE);
-				pbody = read.xlsx2(dirf, sheetIndex = s, startRow=4, endRow = 4, stringsAsFactors = FALSE)
+				pbody = read.xlsx2(dirf, sheetIndex = s, startRow=4, endRow = 4, stringsAsFactors = FALSE);
+				pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,]
 				firstline = cbind(head, pbody);
 				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
 				if (names(head)[1] == "Workgroup.Id"){
@@ -62,11 +67,13 @@ read.xlsx.wiseDir = function (dir){
 	if (maxColumns > 0){
 		dirf = paste(dir, maxFile, sep="");
 		head = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=1, endRow=1, stringsAsFactors = FALSE);
-		colClassesHead = getColClasses(names(head));
+		colClassesHead = getColClasses.read(names(head));
 		head = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=1, endRow=1, colClasses=colClassesHead, stringsAsFactors = FALSE);
 		pbody = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=4, endRow = 4, stringsAsFactors = FALSE)
-		colClassesBody = getColClasses(names(pbody));
+		pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,] ## remove Workgroup.Id column from body, if it exists
+		colClassesBody = getColClasses.read(names(pbody));
 		pbody = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=4, endRow = 4, colClasses=colClassesBody, stringsAsFactors = FALSE)
+		pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,] ## remove Workgroup.Id column from body, if it exists
 		df = cbind(head, pbody);
 	} else { return (df);}
 
@@ -75,15 +82,17 @@ read.xlsx.wiseDir = function (dir){
 	for (f in files){
 		findex = findex + 1;
 		## don't include any files in temporary format
-		if (substr(f,0,1) != "~"){
+		if (substr(f,0,1) != "~"  && grepl(".xl", f)[1]){
 			dirf = paste(dir, f, sep="");
-			sheetCount = sheetCounts[findex];
+			sheetCount = countExcelSheets(dirf);
+			#sheetCount = sheetCounts[findex];
 			for (s in 1:sheetCount){
 				# get header information
 				head = read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=2, colClasses=colClassesHead, stringsAsFactors = FALSE);
 				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
 				if (names(head)[1] == "Workgroup.Id"){
 					body = read.xlsx2(dirf, sheetIndex = s, startRow=4, colClasses=colClassesBody, stringsAsFactors = FALSE)
+					body = subset(body,TRUE,which(names(body) != "Workgroup.Id")) ## remove Workgroup.Id column from body, if it exists
 					full = cbind(head[rep(seq_len(nrow(head)),each=nrow(body)),],body);
 					## if full has less cols than df, populate with dummy data
 					if (ncol(full) < ncol(df)){
@@ -97,16 +106,17 @@ read.xlsx.wiseDir = function (dir){
 						names(full)[which(names(full) == "Student.Work")] = "Student.Work.Part.1";
 					}
 					## look for a mismatch error between number of cols
-					if (ncol(df) != 0 && ncol(full) != ncol(df)){print(names(full)); print(names(df)); print(f); print(s)}
-					if (length(names(df)) != length(intersect(names(df),names(full)))){print(names(full)); print(names(df)); print(f); print(s)}
+					if (ncol(df) != 0 && ncol(full) != ncol(df)){print(names(full)); print(names(df)); print(f); print(s); print("column length mismatch")}
+					if (length(names(df)) != length(intersect(names(df),names(full)))){print(names(full)); print(names(df)); print(f); print(s); print("name mismatch")}
 					df = rbind(df, full);
 				}
 			}
 		}
 	}
-	# creat an index
+	# make sure there aren't any empty rows - i.e. those without a wise id
+	df = subset(df, !is.nan(Wise.Id.1))
+	# create an index
 	df = cbind(Index=1:nrow(df), df);
-
 	# create a Step.Num column
 	df = cbind(df, Step.Num = getStepNum(df));  
 
@@ -117,57 +127,105 @@ read.xlsx.wiseDir = function (dir){
 
 	## place a couple rows for researchers 
 	df = cbind(df, Research.Score = rep(NA,nrow(df)));
+	df = cbind(df, Research.FeedbackGiven = rep("",nrow(df)));
 	df = cbind(df, Research.Notes = rep("",nrow(df)));
+
 
 	### clean up names a bit (remove .., . at end, "if applicable")
 	names(df) = gsub("..if.applicable.", "", names(df));
 	names(df) = gsub("\\.\\.", "\\.", names(df));
 	names(df) = gsub("\\.$", "", names(df));
+	### get final classes and update
+	fcolClasses = getColClasses.final(df);
+	for (c in 1:ncol(df)){
+		if (fcolClasses[c] == "numeric"){
+			df[,c] = as.numeric(df[,c]);
+		} else if (fcolClasses[c] == "factor"){
+			df[,c] = as.factor(df[,c]);
+		} else if (fcolClasses[c] == "character"){
+			df[,c] = as.character(df[,c]);
+		}
+	}
+
 	class(df) = c("wisedata.frame",class(df));
 	return (df);
 }
 
-read.csv.dupMap = function (filename){	
-	df = read.csv(filename, header=TRUE);
-	df$firstname = tolower(df$firstname)
-	df$lastname = tolower(df$lastname)
-	ndf = with(df,aggregate(df, by=list(firstname,lastname), FUN=function(x){return(if (is.numeric(x)){min(x)}else{x[1]})}))
-	iddf = with(df,aggregate(df, by=list(studentId), FUN=function(x){return(if (is.numeric(x)){min(x)}else{x[1]})}))
-	dupIds = iddf$studentId[!(tolower(iddf$studentId) %in% tolower(ndf$studentId))]	
-	dupFirsts = tolower(iddf$firstname[!(tolower(iddf$studentId) %in% tolower(ndf$studentId))])	
-	dupLasts = tolower(iddf$lastname[!(tolower(iddf$studentId) %in% tolower(ndf$studentId))])	
-	replacements = numeric();
-	## for each first,last combo find id in ndf
-	for (i in 1:length(dupFirsts)){
-		newId = subset(ndf, firstname==dupFirsts[i]&lastname==dupLasts[i])$studentId;
-		if (length(newId) == 0) { print(paste(dupFirsts[i], dupLasts[i], "not found"))}
-		else {
-			if (length(newId) > 1) {print(paste(dupFirsts[i], dupLasts[i], "found more than once"))}
-			newId = newId[1];			
+## Given a wisedata.frame will iterate through all rows looking for multiple student responses that are concatatenated into a single column
+## if expandToColumn is TRUE, then each response will be placed in a new Student.Work.Column, if we run out of columns the entire data frame will be expanded
+## if expandToColumn is FALSE, then a row will be repeated for each response
+## regexp.split is the regular expression used to split responses
+expandMultipleResponses = function (df, expandToColumn = TRUE, regexp.split="Response #[0-9]+: "){
+	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
+	returndf = df[1,];
+	returndf = returndf[-1,];
+	if (expandToColumn){
+		for (i in 1:nrow(df)){
+			row = df[i,];
+			indices =  grep("Student.Work",names(row))
+			index = indices[1];	
+			## make sure that only one row has student work
+			if (sum(row[1,indices]!="")==1){
+				sw = row[1, index];
+				responses = strsplit (sw, regexp.split)[[1]];
+				### remove blanks
+				responses = responses[nchar(responses) > 0];
+				### if we have more responses than student work columns, start adding columns
+				if (length(responses) > length(indices)){
+					for (j in 1:(length(responses) - length(indices))){
+						colname  = paste("Student.Work.Part.", j + length(indices),sep=""); 
+						### add new column in both returndf and row
+						row = cbind(row,  newcol = rep("",nrow(row)));
+						names(row)[which(names(row)=="newcol")] = colname;
+						returndf = cbind(returndf,  newcol = rep("",nrow(returndf)));
+						names(returndf)[which(names(returndf)=="newcol")] = colname;
+						df = cbind(df,  newcol = rep("",nrow(df)));
+						names(df)[which(names(df)=="newcol")] = colname;
+					}
+					## get new indices
+					indices =  grep("Student.Work",names(row))
+				}
+				## place each response in a new column of student work
+				for (j in 1:length(responses)){
+					r = responses[j];
+					levels(row[,indices[j]]) = c(levels(row[,indices[j]]), r)
+					row[1,indices[j]] = r;
+				}
+			}
+			returndf = rbind(returndf, row);
 		}
-		
-		replacements = c(replacements, newId)
+		return (returndf);
+	} else {
+		### Create new rows for multiple responses, keep everything the same except student work and add an incremental value to Index
+		for (i in 1:nrow(df)){
+			row = df[i,];
+			indices =  grep("Student.Work",names(row))
+			index = indices[1];	
+			## make sure that only one row has student work
+			if (sum(row[1,indices]!="")==1){
+				sw = row[1, index];
+				responses = strsplit (sw, regexp.split)[[1]];
+				### remove blanks
+				responses = responses[nchar(responses) > 0];
+
+				## create duplicate rows for each response
+				rowdf = row; 
+				rowdf = rowdf[-1,]
+				for (j in 1:length(responses)){
+					r = responses[j];
+					rowdf = rbind(rowdf, row);
+					rowdf[j,index] = r;
+					rowdf$Index[j] = rowdf$Index[j]+(j-1)/1000
+				} 
+				returndf = rbind(returndf, rowdf);
+			} else {
+				returndf = rbind(returndf, row);
+			}
+		}
+		return (returndf);
 	}
-	dups = data.frame(from=dupIds, to=replacements)
-	return (dups);
 }
 
-replaceDuplicateIds = function (wiseDF, dupMap){
-	### make sure that the appropiate columns exist
-	if (sum(names(wiseDF)=="Wise.Id.1"|names(wiseDF)=="Wise.Id.2"|names(wiseDF)=="Wise.Id.3") != 3){
-		print("Are you sure this is a valid wise data object? Couldn't find Id columns");
-		return (wiseDF);
-	}
-	# iterate through first column of duplicate match, look for duplicates and replace
-	for (i in 1:nrow(dupMap)){
-		d_id = dupMap[i,1]; 
-		r_id = dupMap[i,2];
-		wiseDF$Wise.Id.1[wiseDF$Wise.Id.1==d_id] = r_id;
-		wiseDF$Wise.Id.2[wiseDF$Wise.Id.2==d_id] = r_id;
-		wiseDF$Wise.Id.3[wiseDF$Wise.Id.3==d_id] = r_id;
-	}
-	return (wiseDF);
-}
 
 ###
 #	In the case where there are more than one files for a given student this function can be used to 
@@ -197,7 +255,8 @@ transferColValues = function (targetDF, sourceDF, targetColName="Student.Work.Pa
 ######################  Summary functions ############################################
 ## These functions are used to turn a complete, step-by-step data.frame into summaries
 
-
+###
+# awiseDF = aggregate (wiseDF, by=list(Workgroup.Id), select.first = c(Project.Id, Run.Id, Wise.Id.1, Wise.Id.2), c(Teacher.Score, Research.Score), c("sum", "mean", "sd", "median", "min", "max")); #awiseDF[150:170,]
 aggregate.wisedata.frame = function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x;
 	class(df) = "data.frame";  # this way when we call aggregate it won't recursivley call this.
@@ -255,7 +314,6 @@ aggregate.wisedata.frame = function (x, by, select.first, select.numerical, FUNS
 	class(odf) = c("aggwisedata.frame", "data.frame");
 	return(odf);
 }
-awiseDF = aggregate (wiseDF, by=list(Workgroup.Id), select.first = c(Project.Id, Run.Id, Wise.Id.1, Wise.Id.2), c(Teacher.Score, Research.Score), c("sum", "mean", "sd", "median", "min", "max")); #awiseDF[150:170,]
 
 aggregate.aggwisedata.frame = function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x; class(df) = c("wisedata.frame", "data.frame");
@@ -276,7 +334,7 @@ subset.wisedata.frame = function(x, subset, select, drop = FALSE, ...){
 	else {
 	   e <- substitute(subset)
 	   # in case of Call Wise.Id (no .1, .2, etc) perform match against all three
-	   if (as.character(e)[2] == "Wise.Id"){
+	   if (length(as.character(e)) > 1 && as.character(e)[2] == "Wise.Id"){
 	   	  id = as.numeric(as.character(e)[3]);
 	   	  c = call("|", call("|", call("==",quote(Wise.Id.1),id), call("==",quote(Wise.Id.2),id)),call("==",quote(Wise.Id.3),id))
 	   	  e = substitute(c);
@@ -294,6 +352,40 @@ subset.wisedata.frame = function(x, subset, select, drop = FALSE, ...){
 	    vars <- eval(substitute(select), nl, parent.frame())
 	 }
 	x[r, vars, drop = drop]
+}
+
+### Subset by Final Revision gives a subset of data that includes only the final unique revision
+subsetByFinalRevision = function (obj, ...){
+	if (length(which(class(obj)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
+	returnObj = obj[1,]
+	returnObj = returnObj[-1,]
+	projectIds = unique(obj$Project.Id);
+	for (pid in projectIds){
+		obj.p = subset(obj, Project.Id==pid);
+		runIds = unique(obj.p$Run.Id);
+		for (rid in runIds){
+			obj.p.r = subset(obj.p, Run.Id==rid);
+			wgIds = unique(obj.p.r$Workgroup.Id);
+			for (wgid in wgIds){
+				obj.p.r.wg = subset(obj.p.r, Workgroup.Id==wgid);
+				stepTitles = unique(obj.p.r.wg$Step.Title);
+				for (st in stepTitles){
+					# after all that we finally have a single student's set of responses to a question
+					obj.p.r.wg.st = subset(obj.p.r.wg,Step.Title==st);
+					# find the first instance of the max URev.Num (unique revision number)
+					m = max(floor(obj.p.r.wg.st$URev.Num)) 
+					rindex = which(obj.p.r.wg.st$URev.Num == m & nchar(obj.p.r.wg.st$Student.Work.Part.1) > 0)
+					# in the case where a single step has been expanded into multiple rows
+					# there may be identical URev.Num; however, Index will be different, take last
+					if (length(rindex) > 0){
+						rindex = tail(rindex, 1);
+						returnObj = rbind(returnObj, obj.p.r.wg.st[rindex,]);
+					}
+				}
+			}
+		}
+	}
+	return (returnObj);
 }
 
 ############### PRIVATE FUNCTIONS ##############################
@@ -350,7 +442,7 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 					df.p.r.wg.st = subset(df.p.r.wg,Step.Title==st);
 					# after all that we finally have a single student's set of responses to a question
 					Index = c(Index, df.p.r.wg.st$Index);
-					if (incrementIntegerOnChange){
+					if (incrementIntegerOnChange && length(grep("Student.Work",names(df.p.r.wg.st))) > 0){
 						## between changes increments used when value of student work has not changed 
 						swindices = grep("Student.Work",names(df.p.r.wg.st));
 						sw = do.call(paste, c(df.p.r.wg.st[swindices],sep=""))
@@ -401,22 +493,87 @@ getStepNum = function (df){
 	# if any non-matches replace stepTitles with "0" and do again
 	stepTitles[matchNum==-1] = "0"
 	matchNum = regexpr("[0-9]+\\.?[0-9]*", stepTitles);	
+	stepNums = regmatches(stepTitles,matchNum);
 	stepNums = as.numeric(regmatches(stepTitles,matchNum));
 	return (stepNums);
 }
 
 
+### This function is used on reading excel files into data and intrepets columns as numeric or character
+### These classes will not be the final classes, many will be factors, use getColClasses.final to
+### set their final classes
+getColClasses.read = function (colNames){
+	## is this a data frame with names on top or just a list of names
+	if (is.null(nrow(colNames))){
+		cnames = colNames;
+	} else {
+		cnames = names(colNames);
+	}
 
-### Goes through a series of column names and converts to a column class.
-getColClasses = function (colNames){
 	### clean up names a bit (remove .., . at end, "if applicable")
-	colNames= gsub("..if.applicable.", "", colNames);
-	colNames = gsub("\\.\\.", "\\.", colNames);
-	colNames = gsub("\\.$", "", colNames);
+	cnames= gsub("..if.applicable.", "", cnames);
+	cnames = gsub("\\.\\.", "\\.", cnames);
+	cnames = gsub("\\.$", "", cnames);
 
 	colClasses = character();
-	for (colName in colNames)
+	for (i in 1:length(cnames))
 	{
+		colName = cnames[i];
+		
+		if (
+			colName ==  "Time.Spent.Seconds" ||
+			colName ==  "Time.Spent.in.seconds" ||
+			colName ==  "Teacher.Score" ||
+			colName ==  "Research.Score" ||
+			colName == "Rev.Num" ||
+			colName == "IRev.Num" ||
+			colName == "Step.Num"  ||
+			colName == "Index" ||
+			colName == "Workgroup.Id" ||
+			colName ==  "Wise.Id.1" ||
+			colName ==  "Wise.Id.2" ||
+			colName ==  "Wise.Id.3" ||
+			colName ==  "Class.Period" ||
+			colName ==  "Project.Id" ||
+			colName ==  "Parent.Project.Id" ||
+			colName ==  "Run.Id" ||
+			colName == "Changed.Idea.Workgroup.Id"  ||
+			colName == "Idea.Workgroup.Id" ||
+			colName == "Idea.Id" ||
+			colName == "Changed.Idea.Id" ||
+			colName == "Action.Performer" ||
+			colName == "Basket.Revision" || 
+			colName == "Idea.X.Position" ||
+			colName == "Idea.Y.Position"
+		){
+			colClasses = c(colClasses, "numeric");
+		}else {
+			colClasses = c(colClasses, "character");
+		}
+	}
+	return (colClasses);
+}
+
+
+### Goes through a series of column names and converts to a column class.
+getColClasses.final = function (colNames){
+	## is this a data frame with names on top or just a list of names
+	if (is.null(nrow(colNames))){
+		cnames = colNames;
+	} else {
+		cnames = names(colNames);
+	}
+
+	### clean up names a bit (remove .., . at end, "if applicable")
+	cnames= gsub("..if.applicable.", "", cnames);
+	cnames = gsub("\\.\\.", "\\.", cnames);
+	cnames = gsub("\\.$", "", cnames);
+
+	colClasses = character();
+	for (i in 1:length(cnames))
+	{
+		colName = cnames[i];
+		
 		if (colName == "Workgroup.Id" ||
 			colName ==  "Wise.Id.1" ||
 			colName ==  "Wise.Id.2" ||
@@ -425,15 +582,45 @@ getColClasses = function (colNames){
 			colName ==  "Project.Id" ||
 			colName ==  "Parent.Project.Id" ||
 			colName ==  "Run.Id" ||
+			colName == "Step.Type" ||
+			colName == "Action"  ||
+			colName == "Action.Performer"  ||
+			colName == "Changed.Idea.Workgroup.Id"  ||
+			colName == "Idea.Workgroup.Id"  ||
+			colName == "Node.Type" ||
+			colName == "Teacher.Login" ||
+			colName == "Run.Name"  ||
+			colName == "Project.Name" 
+		){
+			colClasses = c(colClasses, "factor");
+		} else if (
 			colName ==  "Time.Spent.Seconds" ||
+			colName ==  "Time.Spent.in.seconds" ||
 			colName ==  "Teacher.Score" ||
+			colName ==  "Research.Score" ||
 			colName == "Rev.Num" ||
 			colName == "IRev.Num" ||
-			colName == "Step.Num"
+			colName == "Step.Num"  ||
+			colName == "Index" ||
+			colName == "Times.Copied" ||
+			colName == "Basket.Revision" ||
+			colName == "Idea.X.Position" ||
+			colName == "Idea.Y.Position"
 		){
 			colClasses = c(colClasses, "numeric");
-		} else {
+		} else if (
+			grepl("Student.Work",colName) ||
+			grepl("Idea.Text", colName) ||
+			colName == "Teacher.Comment"
+		){
 			colClasses = c(colClasses, "character");
+		} else {
+			#if (!is.null(nrow(colNames)) && nrow(colNames) > 0){
+			#	colClasses = c(colClasses, class(colNames[1,i]));
+			#} else{
+				colClasses = c(colClasses, "factor");
+			#}
+			
 		}
 	}
 	return (colClasses);
