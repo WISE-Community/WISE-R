@@ -169,30 +169,44 @@ as.wiseSW = function (row, specialDF, otherDF, stepType=NULL){
 		}
 		## the other df is the idea manager export, has the source of all ideas
 		if (!missing(otherDF)){
+			idea.source = character();
+			fromPublic = vector()
+			Idea.Id = vector()
 			# get timestamp for step
 			ts.start = timestampAsNumeric(row$Start.Time)
 			tindex = grep("time.spent",tolower(names(row)))[1]
 			ts.end = ts.start + row[1,tindex]
 			## subset from idea manager the relevant rows from the private basket
 			orows = subset(otherDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id))
-			### get basket revision number of first idea created after timestamp
-			xrow = subset(orows, timestampAsNumeric(Timestamp.Idea.Created)>ts.end)[1,];
-			br = xrow$Basket.Revision[1]-1
-			## get last basket revision
-			orows = subset(orows, Basket.Revision == br);
-			idea.source = character();
-			fromPublic = vector()
-			if (nrow(orows)>0){
-				for (i in 1:nrow(orows)){
-					orow = orows[i,]
-					if (as.character(orow$Trash) != "1.0"){
-						idea.source = c(idea.source, as.character(orow$Idea.Text)[1])
-						fromPublic = c(fromPublic, as.character(orow$Was.Copied.From.Public)[1])
-					}	
+			if (nrow(orows) > 0){
+				### get basket revision number of first idea created after timestamp
+				rowsAfterTime = timestampAsNumeric(orows$Timestamp.Idea.Created)>ts.end
+				
+				if (sum(rowsAfterTime) > 0){
+					xrow = subset(orows, rowsAfterTime)[1,];
+					### there is a row in which the time is
+					br = xrow$Basket.Revision[1]-1	
+				} else {
+					### the last revision is valid
+					br = tail(orows$Basket.Revision,1)
 				}
+				## get last basket revision
+				orows = subset(orows, Basket.Revision == br);
+				if (nrow(orows)>0){
+					for (i in 1:nrow(orows)){
+						orow = orows[i,]
+						if (as.character(orow$Trash) != "1.0"){
+							idea.source = c(idea.source, as.character(orow$Idea.Text)[1])
+							fromPublic = c(fromPublic, as.numeric(as.character(orow$Was.Copied.From.Public)[1]))
+							Idea.Id = c(Idea.Id, as.numeric(as.character(orow$Idea.Id)[1]))
+						}	
+					}
+				} 
 			}
+
 			sw[['idea.source']] = idea.source;
 			sw[['Was.Copied.From.Public']] = fromPublic;
+			sw[['Idea.Id']] = Idea.Id;
 		}
 	} else {
 		sw[[1]] = row[1, indices[1]];
@@ -385,10 +399,12 @@ studentDataString.wiseSW.OpenResponse = function (obj){
 ## If method is "Workgroup.Id.mod" then
 ###    Condition is assigned by each Wise.User's mod of his or her Workgroup Id in the Parent Project
 ### Note if multiple Wise User Ids are in projects that are not the main projects (pointed to be Parent.Project.Id, e.g. pre post test), will look for first only and print an error
-applyCondition = function (df, Parent.Project.Ids, method="Parent.Project.Id", Workgroup.Id.mod=1, is.data.frame.out=TRUE, VERBOSE=TRUE){
+applyCondition = function (df, method="Parent.Project.Id", Parent.Project.Ids, Workgroup.Id.mod=1, is.data.frame.out=TRUE, VERBOSE=TRUE){
 	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
 	df.pp = subset(df, Parent.Project.Id %in% Parent.Project.Ids);
 	Condition = numeric();
+	error1 = "";
+	error2 = "";
 	if (method=="Parent.Project.Id"){
 		for (i in 1:nrow(df)){
 			row = df[i,];
@@ -399,29 +415,41 @@ applyCondition = function (df, Parent.Project.Ids, method="Parent.Project.Id", W
 				### this row is not part of one of the target parent projects
 				### find a row in the parent project that has same Wise.User.Id
 				id1 = row$Wise.Id.1[1];
-				idf = subset(df.pp, Wise.Id.1==id1|Wise.Id.2==id1|Wise.Id.3==id1)
+				idf = subset(df.pp, Wise.Id.1%in%id1|Wise.Id.2%in%id1|Wise.Id.3%in%id1)
 				if (nrow(idf) == 0){
 					Condition = c(Condition, 0);
-					if(VERBOSE) print(paste("Wise User", id1, "did not complete an experimental project."))
+					error = paste("Wise User", id1, "did not complete an experimental project.")
+					if(VERBOSE && error!==error1 && error!==error2) print(error)
+					error2 = error1
+					error1 = error;
 				} else if (length(unique(idf$Parent.Project.Id)) > 1){
 					# bad, id is in more than one exp project
 					Condition = c(Condition, 0);
-					if(VERBOSE) print(paste("Wise User", id1, "is associated with more than one experimental project."))
+					error = paste("Wise User", id1, "is associated with more than one experimental project.")
+					if(VERBOSE && error!==error1 && error!==error2) print(error)
+					error2 = error1
+					error1 = error;
 				} else {
 					if (!is.nan(row$Wise.Id.2[1]) || !is.nan(row$Wise.Id.3[1])){
 						if(VERBOSE) print(paste("Wise users from workgroup",row$Workgroup.Id,"in non-experimental project has more than one member."))
 						## okay so the teacher did a non-experimental project in groups (bad), but were they all at least in the same condition?
 						id23 = ifelse(!is.nan(row$Wise.Id.2[1]) , row$Wise.Id.2[1] , numeric())
 						id23 = ifelse(!is.nan(row$Wise.Id.3[1]) , c(id23, row$Wise.Id.3[1]) , id23)
-						id23=id23[!is.na(id23)]
+						id23 = id23[!is.na(id23)]
 						idf23 = subset(df.pp, Wise.Id.1%in%id23|Wise.Id.2%in%id23|Wise.Id.3%in%id23)
 						if (nrow(idf23) == 0){
 							Condition = c(Condition, which(Parent.Project.Ids == idf$Parent.Project.Id[1])[1])
-							if(VERBOSE) print(paste("Wise User", id23, "did not complete an experimental project."))
+							error = paste("Wise User", id23, "did not complete an experimental project.")
+							if(VERBOSE && error!==error1 && error!==error2) print(error)
+							error2 = error1
+							error1 = error;
 						} else if (length(unique(idf23$Parent.Project.Id)) > 1){
 							# bad, id is in more than one exp project
 							Condition = c(Condition, 0);
-							if(VERBOSE) print(paste("Wise Users from Workgroup", row$Workgroup.Id, "are associated with more than one experimental project."))
+							error = paste("Wise Users from Workgroup", row$Workgroup.Id, "are associated with more than one experimental project.")
+							if(VERBOSE && error!==error1 && error!==error2) print(error)
+							error2 = error1
+							error1 = error;
 						} else {
 							## folks were all in the same condition
 							Condition = c(Condition, which(Parent.Project.Ids == idf23$Parent.Project.Id[1])[1])
@@ -435,7 +463,63 @@ applyCondition = function (df, Parent.Project.Ids, method="Parent.Project.Id", W
 			}
 		}
 	} else if (method=="Workgroup.Id.mod"){
-		#### TODO
+		#### Generate conditions based on the mod value of Workgroup.Id within the given parent project
+		for (i in 1:nrow(df)){
+			row = df[i,];
+			if (length(which(Parent.Project.Ids == row$Parent.Project.Id[1])) > 0){
+				### this row is part of one of the target parent projects, find the mod of workgroup id
+				Condition = c(Condition, as.numeric(as.character(row$Workgroup.Id))%%Workgroup.Id.mod+1);
+			} else{
+				### this row is not part of one of the target parent projects
+				### find a row in the parent project that has same Wise.User.Id
+				id1 = row$Wise.Id.1[1];
+				idf = subset(df.pp, Wise.Id.1%in%id1|Wise.Id.2%in%id1|Wise.Id.3%in%id1)
+				if (nrow(idf) == 0){
+					Condition = c(Condition, 0);
+					error = paste("Wise User", id1, "did not complete an experimental project.")
+					if(VERBOSE && error!==error1 && error!==error2) print(error)
+					error2 = error1
+					error1 = error;
+				} else if (length(unique(idf$Parent.Project.Id)) > 1){
+					# bad, id is in more than one exp project
+					Condition = c(Condition, 0);
+					error = paste("Wise User", id1, "is associated with more than one experimental project.")
+					if(VERBOSE && error!==error1 && error!==error2) print(error)
+					error2 = error1
+					error1 = error;
+				} else {
+					if (!is.nan(row$Wise.Id.2[1]) || !is.nan(row$Wise.Id.3[1])){
+						if(VERBOSE) print(paste("Wise users from workgroup",row$Workgroup.Id,"in non-experimental project has more than one member."))
+						## okay so the teacher did a non-experimental project in groups (bad), but were they all at least in the same condition?
+						id23 = ifelse(!is.nan(row$Wise.Id.2[1]) , row$Wise.Id.2[1] , numeric())
+						id23 = ifelse(!is.nan(row$Wise.Id.3[1]) , c(id23, row$Wise.Id.3[1]) , id23)
+						id23 = id23[!is.na(id23)]
+						idf23 = subset(df.pp, Wise.Id.1%in%id23|Wise.Id.2%in%id23|Wise.Id.3%in%id23)
+						if (nrow(idf23) == 0){
+							Condition = c(Condition, as.numeric(as.character(idf$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
+							error = paste("Wise User", id23, "did not complete an experimental project.")
+							if(VERBOSE && error!==error1 && error!==error2) print(error)
+							error2 = error1
+							error1 = error;
+						} else if (length(unique(idf23$Parent.Project.Id)) > 1){
+							# bad, id is in more than one exp project
+							Condition = c(Condition, 0);
+							error = paste("Wise Users from Workgroup", row$Workgroup.Id, "are associated with more than one experimental project.")
+							if(VERBOSE && error!==error1 && error!==error2) print(error)
+							error2 = error1
+							error1 = error;
+						} else {
+							## folks were all in the same condition
+							Condition = c(Condition, as.numeric(as.character(idf23$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
+						}
+						
+					} else {
+						## Ideal, one user in non-experiment, associated with one experimental project
+						Condition = c(Condition, as.numeric(as.character(idf$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
+					}
+				}
+			}
+		}
 	} else {
 		print(paste("The method"), method, "does not exist.")
 	}
@@ -492,7 +576,7 @@ parseTimestamp = function (ts){
 	out.list$Year = as.numeric(substring(ts, r[1], r[1] + attr(r, "match.length")-2))
 	ts = substring(ts, r[1] + attr(r, "match.length"))
 	r = regexpr("[0-9]+:", ts)
-	out.list$Hour = as.numeric(substring(ts, r[1], r[1] + attr(r, "match.length")-2))
+	Hour = as.numeric(substring(ts, r[1], r[1] + attr(r, "match.length")-2))
 	ts = substring(ts, r[1] + attr(r, "match.length"))
 	r = regexpr("[0-9]+:", ts)
 	out.list$Minute = as.numeric(substring(ts, r[1], r[1] + attr(r, "match.length")-2))
@@ -501,7 +585,8 @@ parseTimestamp = function (ts){
 	out.list$Second = as.numeric(substring(ts, r[1], r[1] + attr(r, "match.length")-2))
 	ts = substring(ts, r[1] + attr(r, "match.length"))
 	r = regexpr("AM|PM", ts)
-	out.list$AM_PM = substring(ts, r[1], r[1] + attr(r, "match.length")-1)
+	AM_PM = substring(ts, r[1], r[1] + attr(r, "match.length")-1)
+	out.list$Hour = ifelse(AM_PM=="PM",Hour%%12+12, Hour%%12)
 	class(out.list) = "timestamp";
 	return (out.list);
 }
@@ -520,31 +605,10 @@ timestampAsNumeric = function (ts){
 	}	
 	daysInYearSoFar = daysInMonthsSoFar[out.list$Month]
 	
-	s = (out.list$Year - 2000)*365.25*24*60*60 + daysInYearSoFar*24*60*60 + out.list$Day*24*60*60 + (out.list$Hour+ifelse(out.list$AM_PM=="PM",12,0))*60*60 + out.list$Minute*60 +out.list$Second;
+	s = (out.list$Year - 2000)*365.25*24*60*60 + daysInYearSoFar*24*60*60 + out.list$Day*24*60*60 + out.list$Hour*60*60 + out.list$Minute*60 +out.list$Second;
 	return (s);
 }
 
-
-# if ts1 < ts2 return -1, if ts1 > ts2 return 1, if same return 0
-compareTimestamps = function (ts1, ts2){
-	if (class(ts1) == "character") ts1 = parseTimestamp(ts1);
-	if (class(ts2) == "character") ts2 = parseTimestamp(ts2);
-	if (ts1$Year < ts2$Year){return(-1)}
-	else if (ts1$Year > ts2$Year){return(1)}
-	if (ts1$Month < ts2$Month){return(-1)}
-	else if (ts1$Month > ts2$Month){return(1)}
-	if (ts1$Day < ts2$Day){return(-1)}
-	else if (ts1$Day > ts2$Day){return(1)}
-	if (ts1$AM_PM=="AM" && ts2$AM_PM=="PM"){return(-1)}
-	else if (ts1$AM_PM=="PM" && ts2$AM_PM=="AM"){return(1)}
-	if (ts1$Hour < ts2$Hour){return(-1)}
-	else if (ts1$Hour > ts2$Hour){return(1)}
-	if (ts1$Minute < ts2$Minute){return(-1)}
-	else if (ts1$Minute > ts2$Minute){return(1)}
-	if (ts1$Second < ts2$Second){return(-1)}
-	else if (ts1$Second > ts2$Second){return(1)}
-	return(0);
-}
 
 summary.wiseSW.Note = function (obj){print("Note");return(summary.wiseSW(obj))}
 summary.wiseSW.AssessmentList = function (obj){return(summary.wiseSW(obj))}

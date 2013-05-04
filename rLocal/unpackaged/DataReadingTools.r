@@ -92,23 +92,25 @@ read.xlsx.wiseDir = function (dir){
 				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
 				if (names(head)[1] == "Workgroup.Id"){
 					body = read.xlsx2(dirf, sheetIndex = s, startRow=4, colClasses=colClassesBody, stringsAsFactors = FALSE)
-					body = subset(body,TRUE,which(names(body) != "Workgroup.Id")) ## remove Workgroup.Id column from body, if it exists
-					full = cbind(head[rep(seq_len(nrow(head)),each=nrow(body)),],body);
-					## if full has less cols than df, populate with dummy data
-					if (ncol(full) < ncol(df)){
-						for (c in (ncol(full)+1):ncol(df)){
-							full = cbind(full, dum=rep("",nrow(full)))
-							names(full)[c] = names(df)[c]; 
+					if (nrow(body) > 0 && prod(is.na(body))==0){  #is there data here?
+						body = subset(body,TRUE,which(names(body) != "Workgroup.Id")) ## remove Workgroup.Id column from body, if it exists
+						full = cbind(head[rep(seq_len(nrow(head)),each=nrow(body)),],body);
+						## if full has less cols than df, populate with dummy data
+						if (ncol(full) < ncol(df)){
+							for (c in (ncol(full)+1):ncol(df)){
+								full = cbind(full, dum=rep("",nrow(full)))
+								names(full)[c] = names(df)[c]; 
+							}
 						}
+						## replace Student.Work with Student.Work.Part.1
+						if (length(which(names(full) == "Student.Work")) == 1){
+							names(full)[which(names(full) == "Student.Work")] = "Student.Work.Part.1";
+						}
+						## look for a mismatch error between number of cols
+						if (ncol(df) != 0 && ncol(full) != ncol(df)){print(names(full)); print(names(df)); print(f); print(s); print("column length mismatch")}
+						if (length(names(df)) != length(intersect(names(df),names(full)))){print(names(full)); print(names(df)); print(f); print(s); print("name mismatch")}
+						df = rbind(df, full);
 					}
-					## replace Student.Work with Student.Work.Part.1
-					if (length(which(names(full) == "Student.Work")) == 1){
-						names(full)[which(names(full) == "Student.Work")] = "Student.Work.Part.1";
-					}
-					## look for a mismatch error between number of cols
-					if (ncol(df) != 0 && ncol(full) != ncol(df)){print(names(full)); print(names(df)); print(f); print(s); print("column length mismatch")}
-					if (length(names(df)) != length(intersect(names(df),names(full)))){print(names(full)); print(names(df)); print(f); print(s); print("name mismatch")}
-					df = rbind(df, full);
 				}
 			}
 		}
@@ -119,7 +121,7 @@ read.xlsx.wiseDir = function (dir){
 	df = cbind(Index=1:nrow(df), df);
 	# create a Step.Num column
 	df = cbind(df, Step.Num = getStepNum(df));  
-
+	
 	## place revision numbers on this data frame.
 	df = cbind(df, Rev.Num = getRevisionNumber(df,FALSE));
 	df = cbind(df, IRev.Num = getRevisionNumber(df,TRUE));
@@ -235,7 +237,11 @@ transferColValues = function (targetDF, sourceDF, targetColName="Student.Work.Pa
 	for (r in 1:nrow(sourceDF)){
 		srow = sourceDF[r,];
 		## filter down to a single row of the targetDF (hopefully)
-		tindices = with(targetDF, which(Workgroup.Id==srow$Workgroup.Id[1]&Wise.Id.1==srow$Wise.Id.1[1]&Project.Id==srow$Project.Id[1]&Step.Num==srow$Step.Num[1]&Start.Time==srow$Start.Time[1]&End.Time==srow$End.Time[1], arr.ind=TRUE));
+		if (length(which(names(targetDF)=="Step.Work.Id"))>0 && length(which(names(sourceDF)=="Step.Work.Id"))>0){
+			tindices = subset(targetDF, Step.Work.Id%in%srow$Step.Work.Id)$Index;	
+		} else {	
+			tindices = subset(targetDF, Workgroup.Id%in%srow$Workgroup.Id&Wise.Id.1%in%srow$Wise.Id.1&Project.Id%in%srow$Project.Id&Step.Num%in%srow$Step.Num&Start.Time%in%srow$Start.Time&End.Time%in%srow$End.Time)$Index;	
+		}
 		if (length(tindices) == 0){
 			print("No corresponding row in target data frame");
 		} else if (length(tindices)  > 1){
@@ -244,7 +250,7 @@ transferColValues = function (targetDF, sourceDF, targetColName="Student.Work.Pa
 			tindices = tindices[1];
 		}
 		if (length(tindices) == 1){
-			targetDF[tindices[1],which(names(targetDF)==targetColName)] = srow[1,which(names(sourceDF)==sourceColName)];
+			targetDF[targetDF$Index%in%tindices,which(names(targetDF)==targetColName)] = srow[1,which(names(sourceDF)==sourceColName)];
 		}
 	}
 	return (targetDF);
@@ -438,6 +444,7 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 			for (wgid in wgIds){
 				df.p.r.wg = subset(df.p.r, Workgroup.Id==wgid);
 				stepTitles = unique(df.p.r.wg$Step.Title);
+				stepTitles = stepTitles[!is.na(stepTitles)];
 				for (st in stepTitles){
 					df.p.r.wg.st = subset(df.p.r.wg,Step.Title==st);
 					# after all that we finally have a single student's set of responses to a question
@@ -475,7 +482,11 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 					} else {
 						Rev.Num = c(Rev.Num, rev);
 					}
-					
+					if (length(Rev.Num) != length(Index)){
+						print(paste(wgid, st))
+						print(df.p.r.wg.st$Index)
+						return(NULL);
+					}
 				}
 			}
 		}
@@ -486,15 +497,30 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 	return (tdf$Rev.Num)
 }
 
+
 ## Uses regular expression matching to find the step number in the front of a step title
 getStepNum = function (df){
 	stepTitles = as.character(df$Step.Title);
-	matchNum = regexpr("[0-9]+\\.?[0-9]*", stepTitles);
-	# if any non-matches replace stepTitles with "0" and do again
+	matchNum = regexpr("[0-9]+", stepTitles);
 	stepTitles[matchNum==-1] = "0"
-	matchNum = regexpr("[0-9]+\\.?[0-9]*", stepTitles);	
-	stepNums = regmatches(stepTitles,matchNum);
-	stepNums = as.numeric(regmatches(stepTitles,matchNum));
+	matchNum = regexpr("[0-9]+", stepTitles);
+	stepNums = as.numeric(substr(stepTitles,matchNum,attr(matchNum,"match.length")))
+	## second level
+	stepTitles2 = substr(stepTitles,matchNum+attr(matchNum,"match.length"),nchar(stepTitles))
+	matchNum = regexpr("\\.[0-9]+", stepTitles2);
+	if (length(matchNum) != -1*sum(matchNum)){
+		stepTitles2[matchNum==-1] = ".0"
+		matchNum = regexpr("\\.[0-9]+", stepTitles2);
+		stepNums = stepNums + as.numeric(substr(stepTitles2,matchNum+1,attr(matchNum,"match.length")))/100
+		#third level
+		stepTitles3 = substr(stepTitles2,matchNum+attr(matchNum,"match.length"),nchar(stepTitles))
+		matchNum = regexpr("\\.[0-9]+", stepTitles3);
+		if (length(matchNum) != -1*sum(matchNum)){
+			stepTitles3[matchNum==-1] = ".0"
+			matchNum = regexpr("\\.[0-9]+", stepTitles3);
+			stepNums = stepNums + as.numeric(substr(stepTitles3,matchNum+1,attr(matchNum,"match.length")))/10000
+		}
+	}
 	return (stepNums);
 }
 
@@ -521,13 +547,13 @@ getColClasses.read = function (colNames){
 		colName = cnames[i];
 		
 		if (
-			colName ==  "Time.Spent.Seconds" ||
-			colName ==  "Time.Spent.in.seconds" ||
+			grepl("Time",colName)[1] ||
 			colName ==  "Teacher.Score" ||
 			colName ==  "Research.Score" ||
 			colName == "Rev.Num" ||
 			colName == "IRev.Num" ||
 			colName == "Step.Num"  ||
+			colName == "Step.Work.Id" ||
 			colName == "Index" ||
 			colName == "Workgroup.Id" ||
 			colName ==  "Wise.Id.1" ||
@@ -583,6 +609,7 @@ getColClasses.final = function (colNames){
 			colName ==  "Parent.Project.Id" ||
 			colName ==  "Run.Id" ||
 			colName == "Step.Type" ||
+			colName == "Step.Work.Id" ||
 			colName == "Action"  ||
 			colName == "Action.Performer"  ||
 			colName == "Changed.Idea.Workgroup.Id"  ||
@@ -594,13 +621,11 @@ getColClasses.final = function (colNames){
 		){
 			colClasses = c(colClasses, "factor");
 		} else if (
-			colName ==  "Time.Spent.Seconds" ||
-			colName ==  "Time.Spent.in.seconds" ||
+			grepl("Time",colName)[1] ||
+			grepl("Rev.Num",colName)[1] ||
 			colName ==  "Teacher.Score" ||
 			colName ==  "Research.Score" ||
-			colName == "Rev.Num" ||
-			colName == "IRev.Num" ||
-			colName == "Step.Num"  ||
+			colName == "Step.Num" ||
 			colName == "Index" ||
 			colName == "Times.Copied" ||
 			colName == "Basket.Revision" ||
@@ -609,8 +634,8 @@ getColClasses.final = function (colNames){
 		){
 			colClasses = c(colClasses, "numeric");
 		} else if (
-			grepl("Student.Work",colName) ||
-			grepl("Idea.Text", colName) ||
+			grepl("Student.Work",colName)[1] ||
+			grepl("Idea.Text", colName)[1] ||
 			colName == "Teacher.Comment"
 		){
 			colClasses = c(colClasses, "character");
