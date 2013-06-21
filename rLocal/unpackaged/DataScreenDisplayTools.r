@@ -63,4 +63,3 @@ textplot.wiseSW = function(obj, ...){
 		do.call(textplot, newargs);	
 	}	
 }
-textplot(w, col="#0000FF", bg="#CCCCCC");

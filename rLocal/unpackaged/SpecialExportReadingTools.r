@@ -35,9 +35,12 @@ read.xlsx.special = function (dir){
 						}
 					} else {
 						Wise.Id.2 = ""
+						Wise.Id.3 = ""
 					}
 				} else {
 					Wise.Id.1 = ""
+					Wise.Id.2 = ""
+					Wise.Id.3 = ""
 				}
 				Step.Work.Id = vector();
 				### go through each visit of this step
@@ -87,6 +90,53 @@ read.xlsx.ideaBasket.public = function (dir){
 		}
 	}
 	### get final classes and update
+	names(df) = gsub("..if.applicable.", "", names(df));
+	names(df) = gsub("\\.\\.", "\\.", names(df));
+	names(df) = gsub("\\.$", "", names(df));
+
+	fcolClasses = getColClasses.final(df);
+	for (c in 1:ncol(df)){
+		if (fcolClasses[c] == "numeric"){
+			df[,c] = as.numeric(df[,c]);
+		} else if (fcolClasses[c] == "factor"){
+			df[,c] = as.factor(df[,c]);
+		} else if (fcolClasses[c] == "character"){
+			df[,c] = as.character(df[,c]);
+		}
+	}
+
+	return (df);
+}
+
+### Reads special export of idea manager, with private settings.  Excel files should be single tabs in a single directory
+read.xlsx.ideaBasket.private = function (dir){
+	files = list.files(dir);
+	df = data.frame();
+
+	# Iterate the first time through all the files to find the largest number of columns
+	#  e.g. a questionarre could have multiple "student work" columns
+	for (f in files){
+		if (substr(f,0,1) != "~" && grepl(".xl", f)[1]){
+			dirf = paste(dir, f, sep="");
+			### get header
+			head = read.xlsx2(dirf, sheetIndex = 1, startRow=1, endRow=2, stringsAsFactors = FALSE, colClasses=NA);
+			colClasses = getColClasses.read(names(head));	
+			head = read.xlsx2(dirf, sheetIndex = 1, startRow=1, endRow=2, colClasses=colClasses);
+			### get body, but just part
+			body = read.xlsx2(dirf, sheetIndex = 1, startRow=4, endRow=10, stringsAsFactors = FALSE, colClasses=NA);
+			colClasses = getColClasses.read(names(body));	
+			body = read.xlsx2(dirf, sheetIndex = 1, startRow=4, colClasses=colClasses);
+			### merge header df with body
+			head = head[rep(1,each=nrow(body)),];
+			sdf = cbind(head,body);
+			df = rbind(df, sdf)
+		}
+	}
+	### get final classes and update
+	names(df) = gsub("..if.applicable.", "", names(df));
+	names(df) = gsub("\\.\\.", "\\.", names(df));
+	names(df) = gsub("\\.$", "", names(df));
+	
 	fcolClasses = getColClasses.final(df);
 	for (c in 1:ncol(df)){
 		if (fcolClasses[c] == "numeric"){

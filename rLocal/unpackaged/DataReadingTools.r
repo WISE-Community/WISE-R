@@ -28,7 +28,7 @@ library(xlsx);
 ### - excel file now contains a workgroup Id column, will check for this
 #\name{read.xlsx.wiseDir}
 #\description
-read.xlsx.wiseDir = function (dir){
+read.xlsx.wiseDir = function (dir, DEBUG = FALSE){
 	files = list.files(dir);
 	df = data.frame();
 	# Iterate the first time through all the files to find the largest number of columns
@@ -39,13 +39,18 @@ read.xlsx.wiseDir = function (dir){
 		## don't include any files in temporary format
 		if (substr(f,0,1) != "~"  && grepl(".xl", f)[1]){
 			dirf = paste(dir, f, sep="");
+			if (DEBUG) print(f)
 			sheetCount = countExcelSheets(dirf);
 			sheetCounts = c(sheetCounts, sheetCount);
 			for (s in 1:sheetCount){
+				if (DEBUG) print(s)
 				# get first row
 				head = read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=1, stringsAsFactors = FALSE);
+				if (DEBUG) print("Got header")
 				pbody = read.xlsx2(dirf, sheetIndex = s, startRow=4, endRow = 4, stringsAsFactors = FALSE);
+				if (DEBUG) print("Got body")
 				pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,]
+				if (DEBUG) print("Got body with character classes")
 				firstline = cbind(head, pbody);
 				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
 				if (names(head)[1] == "Workgroup.Id"){
@@ -121,11 +126,13 @@ read.xlsx.wiseDir = function (dir){
 	df = cbind(Index=1:nrow(df), df);
 	# create a Step.Num column
 	df = cbind(df, Step.Num = getStepNum(df));  
+	df = cbind(df, Step.Num.NoBranch = collapseStepNumBranches(df$Step.Num))
 	
 	## place revision numbers on this data frame.
 	df = cbind(df, Rev.Num = getRevisionNumber(df,FALSE));
 	df = cbind(df, IRev.Num = getRevisionNumber(df,TRUE));
 	df = cbind(df, URev.Num = getRevisionNumber(df,FALSE, TRUE));
+	df = cbind(df, IURev.Num = getRevisionNumber(df,TRUE, TRUE));
 
 	## place a couple rows for researchers 
 	df = cbind(df, Research.Score = rep(NA,nrow(df)));
@@ -228,12 +235,61 @@ expandMultipleResponses = function (df, expandToColumn = TRUE, regexp.split="Res
 	}
 }
 
+# expand each workgroup into the number of participants,
+# If one Wise User, then row remains the same
+# If two Wise users, then row one remains the same, row two switches placement of wiseUsers
+# If three Wise users, then row one remains th same, row two shifts back one place, row three shifts back two places 
+expandWorkgroupToWiseId = function (df){
+	df.out = data.frame();
+	for (r in 1:nrow(df)){
+		row = df[r,];
+		if (!is.na(as.numeric(as.character(row$Wise.Id.1))) && !is.na(as.numeric(as.character(row$Wise.Id.2))) && !is.na(as.numeric(as.character(row$Wise.Id.3)))) {
+			df.out = rbind(df.out,row);
+			temp = row$Wise.Id.1;
+			row$Wise.Id.1 = row$Wise.Id.2
+			row$Wise.Id.2 = row$Wise.Id.3
+			row$Wise.Id.3 = temp
+			df.out = rbind(df.out, row);
+			temp = row$Wise.Id.1;
+			row$Wise.Id.1 = row$Wise.Id.2
+			row$Wise.Id.2 = row$Wise.Id.3
+			row$Wise.Id.3 = temp
+			df.out = rbind(df.out, row);
+		} else if (!is.na(as.numeric(as.character(row$Wise.Id.1))) && !is.na(as.numeric(as.character(row$Wise.Id.2)))){
+			df.out = rbind(df.out,row);
+			temp = row$Wise.Id.1;
+			row$Wise.Id.1 = row$Wise.Id.2
+			row$Wise.Id.2 = temp;
+			df.out = rbind(df.out, row);
+		} else if (!is.na(row$Wise.Id.1)){
+			df.out = rbind(df.out,row);
+		}
+	}
+	return (df.out);
+}
+
+refactor = function(df, colNames=NULL){
+	if (is.null(colNames)){
+		colNames = names(df)
+	}
+	for (i in which(names(df)%in%colNames)){
+		if (is.factor(df[,i])){
+			df[,i] = factor(df[,i])
+		}
+	}
+	return (df)
+}
+### import file to gather column values
+readForColValues = function (targetDF, sourceFile, targetColNames=NULL, sourceColNames="Student.Work.Part.1"){
+	sourceDF = read.xlsx2(sourceFile, sheetIndex = 1)
+	df.out = transferColValues(targetDF, sourceDF, targetColNames, sourceColNames)
+}
 
 ###
 #	In the case where there are more than one files for a given student this function can be used to 
 #	transfer the values in one file to the corresponding row in a target dataframe.
 #
-transferColValues = function (targetDF, sourceDF, targetColName="Student.Work.Part.1", sourceColName="Student.Work.Part.1"){
+transferColValues = function (targetDF, sourceDF, targetColNames="Student.Work.Part.1", sourceColNames="Student.Work.Part.1"){
 	for (r in 1:nrow(sourceDF)){
 		srow = sourceDF[r,];
 		## filter down to a single row of the targetDF (hopefully)
@@ -244,26 +300,41 @@ transferColValues = function (targetDF, sourceDF, targetColName="Student.Work.Pa
 		}
 		if (length(tindices) == 0){
 			print("No corresponding row in target data frame");
-		} else if (length(tindices)  > 1){
-			print(paste(length(tindices), "matching rows found, using first"));
-			print(targetDF[tindices,]);
-			tindices = tindices[1];
-		}
-		if (length(tindices) == 1){
-			targetDF[targetDF$Index%in%tindices,which(names(targetDF)==targetColName)] = srow[1,which(names(sourceDF)==sourceColName)];
+		} else {
+			#print(paste(length(tindices), "matching rows found, using first"));
+			#print(targetDF[tindices,]);
+			#tindices = tindices[1];
+			for (s in 1:length(sourceColNames)){
+				sourceColName = sourceColNames[s]
+				if (s <= length(targetColNames)){
+					targetColName = targetColNames[s]
+				} else {
+					targetColName = sourceColName
+				}
+				### does the column exist in the target?
+				if (sum(names(targetDF)==targetColName) == 0){
+					### no, add it
+					sclass = class(sourceDF[,which(names(sourceDF)==sourceColName)])
+					targetDF[,targetColName] = rep(NA, nrow(targetDF))	
+				} 
+				targetDF[targetDF$Index%in%tindices,which(names(targetDF)==targetColName)] = srow[1,which(names(sourceDF)==sourceColName)];	
+			}
 		}
 	}
 	return (targetDF);
 }
-
+wiseDF.gcc.burnOR.in = readScoredResponses(wiseDF.gcc.burnOR, excelOutFile)
 
 
 ######################  Summary functions ############################################
 ## These functions are used to turn a complete, step-by-step data.frame into summaries
 
 ###
+# select.first are those columns we want to keep intact from the first row
+# select.numerical are those columns where we are applying some function to get aggegrate data
+# FUNS.numerical correspond to each select.mumerical
 # awiseDF = aggregate (wiseDF, by=list(Workgroup.Id), select.first = c(Project.Id, Run.Id, Wise.Id.1, Wise.Id.2), c(Teacher.Score, Research.Score), c("sum", "mean", "sd", "median", "min", "max")); #awiseDF[150:170,]
-aggregate.wisedata.frame = function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
+aggregate.wisedata.frame = function (x, by = list(Workgroup.Id), select.first = c(Project.Id, Run.Id, Wise.Id.1, Wise.Id.2, Wise.Id.3, Condition), select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x;
 	class(df) = "data.frame";  # this way when we call aggregate it won't recursivley call this.
 	# create a new data frame with just by factor
@@ -271,60 +342,58 @@ aggregate.wisedata.frame = function (x, by, select.first, select.numerical, FUNS
 	by_call = substitute(by);
 	b = deparse(by_call);
 	b = sub("^ *list *\\( *","", b); b = sub(" *\\) *$", "", b);
-	by_index = which(b == names(x));
+	b = strsplit(b, ", *")[[1]]
+	by_index = which(names(x) %in% b);
 	by = eval(by_call,x,parent.frame());
-	odf = data.frame(aggregate(df, by, FUN = first, simplify=TRUE)[,c(1,by_index+1)]);
-	#names(odf)[1] = deparse(substitute(b));
+	### Get just a dataframe with the grouping variables
+	odf = aggregate(subset(df,TRUE,by_index), by, FUN = first, simplify=FALSE)[,c(1,length(by_index))];
+	names(odf) = b
 	### seb2lect.first are those items that we just want the top value
 	if (!missing(select.first)){
 		nl = as.list(seq_along(x));
 		names(nl) = names(x);
 		vars = eval(substitute(select.first), nl, parent.frame());
-		df.select.first = df[,c(by_index,vars)];
+		df.select.first = df[,c(vars)];
 		odf = aggregate(df.select.first, by, FUN = first, simplify=TRUE);
+		names(odf)[1:length(b)] = b
 	}
 	if (!missing(select.numerical)&& !missing(FUNS.numerical)){
 		# we need to aggregate by step first
 		nl = as.list(seq_along(x));
 		names(nl) = names(x);
 		vars = eval(substitute(select.numerical), nl, parent.frame());
-		index.step = which("Step.Num" == names(x));
-		index.wg = which("Workgroup.Id" == names(x));
-		agg_indices = union(by_index, union(vars, union(index.step, index.wg)));
-		df.agg = df[,agg_indices];
-		agg = aggregate(df.agg, by = list(Workgroup.Id, Step.Num), FUN="max", na.rm=TRUE, simplify = TRUE);
-		# there has to be a better way to do this (but apply seems to chnange to a matrix)
-		print(class(agg))
-		for (c in 1:ncol(agg)) {for(r in 1:nrow(agg)) if (is.infinite(agg[r, c])) agg[r,c] = NA; }  
-		#agg = apply(agg, 2, function(x) {x[is.infinite(x)] <- NA; x}) 
-		print(class(agg))
-		#return(list(by_call, agg, parent.frame()))
-		by = eval(by_call,agg,parent.frame());
-		for (fun in FUNS.numerical){
-			
-			#df.select.numerical = agg[,c(by_index,vars)];
-			adf = aggregate(agg, by, FUN = fun, na.rm = TRUE, simplify=TRUE);
+		for (fun in FUNS.numerical){		
+			df.select.numerical = df[,c(vars)];
+			adf = aggregate(df.select.numerical, by, FUN = fun, na.rm = TRUE, simplify=TRUE);
 			## if there is more than one numerical function attach the name of the funciton
-			if (length(FUNS.numerical) > 1){ names(adf) = paste(names(adf),".",fun,sep="") }
-			if (!missing(select.first) && ncol(odf) > 2){
-				odf = cbind(odf, adf[,2:ncol(adf)]);
-			} else {
-				odf = adf;
-			}
+			#if (length(FUNS.numerical) > 1){ 
+			names(adf) = paste(names(df)[c(by_index,vars)],fun,sep=".") 
+			adf = subset(adf,TRUE,-1*c(1:length(b)))
+			odf = cbind(odf, adf);
 		}
 		
 	}
-	# remove repeats of by variable
-	reps = !grepl(b,names(odf)); #reps[1:length(by)] = FALSE; reps[length(by)+1] = TRUE;
-	odf = odf[,reps];
-	class(odf) = c("aggwisedata.frame", "data.frame");
+	
+	Collapse.Count = numeric();
+	for (i in 1:nrow(odf)){
+		row = odf[i,]
+		sdf = df
+		for (b.name in b){
+			sdf = subset(sdf, sdf[,which(names(sdf)==b.name)]==row[1,which(names(row)==b.name)])
+		}
+		Collapse.Count = c(Collapse.Count, nrow(sdf))
+	}
+	odf$Collapse.Count = Collapse.Count
+	class(odf) = c("aggwisedata.frame", "wisedata.frame", "data.frame");
 	return(odf);
 }
 
 aggregate.aggwisedata.frame = function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x; class(df) = c("wisedata.frame", "data.frame");
 	by = eval(substitute(by),x,parent.frame());
-	aggregate(df,by, select.first, select.numerical, FUNS.numerical, simplify = TRUE);
+	odf = aggregate(df,by, select.first, select.numerical, FUNS.numerical, simplify = TRUE);
+	class(odf) = c("aggwisedata.frame", "wisedata.frame", "data.frame");
+	return(odf);
 }
 
 
@@ -360,38 +429,43 @@ subset.wisedata.frame = function(x, subset, select, drop = FALSE, ...){
 	x[r, vars, drop = drop]
 }
 
-### Subset by Final Revision gives a subset of data that includes only the final unique revision
-subsetByFinalRevision = function (obj, ...){
-	if (length(which(class(obj)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
-	returnObj = obj[1,]
-	returnObj = returnObj[-1,]
-	projectIds = unique(obj$Project.Id);
-	for (pid in projectIds){
-		obj.p = subset(obj, Project.Id==pid);
-		runIds = unique(obj.p$Run.Id);
-		for (rid in runIds){
-			obj.p.r = subset(obj.p, Run.Id==rid);
-			wgIds = unique(obj.p.r$Workgroup.Id);
-			for (wgid in wgIds){
-				obj.p.r.wg = subset(obj.p.r, Workgroup.Id==wgid);
-				stepTitles = unique(obj.p.r.wg$Step.Title);
-				for (st in stepTitles){
-					# after all that we finally have a single student's set of responses to a question
-					obj.p.r.wg.st = subset(obj.p.r.wg,Step.Title==st);
-					# find the first instance of the max URev.Num (unique revision number)
-					m = max(floor(obj.p.r.wg.st$URev.Num)) 
-					rindex = which(obj.p.r.wg.st$URev.Num == m & nchar(obj.p.r.wg.st$Student.Work.Part.1) > 0)
-					# in the case where a single step has been expanded into multiple rows
-					# there may be identical URev.Num; however, Index will be different, take last
-					if (length(rindex) > 0){
-						rindex = tail(rindex, 1);
-						returnObj = rbind(returnObj, obj.p.r.wg.st[rindex,]);
-					}
-				}
+### For each workgroup subsets to only those steps between the first revision (unique if given) of a step and the last revision of a step
+### We can start from the first instance of a step or the last instance of a step (start.first, start.last)
+subset.Step.Range = function (df, step.Num.NoBranch.first, step.Num.NoBranch.last, start.first=TRUE, start.last=FALSE, unique.first=FALSE, unique.last=TRUE){
+	df.out = df[1,]
+	df.out= df.out[-1,]
+	for (wg in unique(df$Workgroup.Id)){
+		print(paste("Workgroup", wg))
+		if (unique.first){
+			if (start.first){
+				index.first = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.first&URev.Num==1)$Index[1]	
+			} else {
+				index.first = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.first&IURev.Num==0)$Index[1]	
+			}		
+		} else {
+			if (start.first){
+				index.first = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.first&Rev.Num==1)$Index[1]
+			} else {
+				index.first = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.first&IRev.Num==0)$Index[1]
 			}
 		}
+
+		if (unique.last){
+			if (start.last){
+				index.last = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.last&URev.Num==1)$Index[1]	
+			} else {
+				index.last = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.last&IURev.Num==0)$Index[1]	
+			}		
+		} else {
+			if (start.last){
+				index.last = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.last&Rev.Num==1)$Index[1]
+			} else {
+				index.last = subset(df, Workgroup.Id==wg&Step.Num.NoBranch==step.Num.NoBranch.last&IRev.Num==0)$Index[1]
+			}
+		}	
+		df.out = rbind(df.out, subset(df, Workgroup.Id==wg&Index>=index.first&Index<=index.last))
 	}
-	return (returnObj);
+	return (df.out)
 }
 
 ############### PRIVATE FUNCTIONS ##############################
@@ -434,60 +508,58 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 	Index = numeric();
 	Rev.Num = numeric();
 	## filter down to each step for each student in each run of each project
-	projectIds = unique(df$Project.Id);
-	for (pid in projectIds){
-		df.p = subset(df, Project.Id==pid);
-		runIds = unique(df.p$Run.Id);
-		for (rid in runIds){
-			df.p.r = subset(df.p, Run.Id==rid);
-			wgIds = unique(df.p.r$Workgroup.Id);
-			for (wgid in wgIds){
-				df.p.r.wg = subset(df.p.r, Workgroup.Id==wgid);
-				stepTitles = unique(df.p.r.wg$Step.Title);
-				stepTitles = stepTitles[!is.na(stepTitles)];
-				for (st in stepTitles){
-					df.p.r.wg.st = subset(df.p.r.wg,Step.Title==st);
-					# after all that we finally have a single student's set of responses to a question
-					Index = c(Index, df.p.r.wg.st$Index);
-					if (incrementIntegerOnChange && length(grep("Student.Work",names(df.p.r.wg.st))) > 0){
-						## between changes increments used when value of student work has not changed 
-						swindices = grep("Student.Work",names(df.p.r.wg.st));
-						sw = do.call(paste, c(df.p.r.wg.st[swindices],sep=""))
-						usw = unique(sw);
-						## remove non-answers from unique answers
-						usw = usw[!is.na(usw)&!grepl("^ *$",usw)&usw!="N/A"&!grepl("Response #[0-9]*: \\[\\]",usw)]
-						running_index = 0; running_value = 0;
-						rev = numeric();
-						for (val in sw){
-							index = which(val == usw);
-							if (length(index) > 0 && index != running_index){
-								running_value = floor(running_value) + 1;
-								running_index = index;
-								rev = c(rev, running_value);
-							} else {
-								running_value = running_value + betweenChangeIncrements;
-								if (floor(running_value) == 0) {
-									rev = c(rev, running_value-betweenChangeIncrements);
-								} else {
-									rev = c(rev, running_value);
-								}								
-							}							
-						}
+	wgIds = unique(df$Workgroup.Id);
+	for (wgid in wgIds){
+		df.wg = subset(df, Workgroup.Id==wgid);
+		stepTitles = unique(df.wg$Step.Title);
+		stepTitles = stepTitles[!is.na(stepTitles)];
+		for (st in stepTitles){
+			df.wg.st = subset(df.wg,Step.Title==st);
+			# after all that we finally have a single student's set of responses to a question
+			Index = c(Index, df.wg.st$Index);
+			if (incrementIntegerOnChange && length(grep("Student.Work",names(df.wg.st))) > 0){
+				## between changes increments used when value of student work has not changed 
+				swindices = grep("Student.Work",names(df.wg.st));
+				sw = do.call(paste, c(df.wg.st[swindices],sep=""))
+				usw = unique(sw);
+				## remove non-answers from unique answers
+				usw = usw[!is.na(usw)&!grepl("^ *$",usw)&usw!="N/A"&!grepl("Response #[0-9]*: \\[\\]",usw)]
+				rev = numeric();
+				running_index = 0; running_value = 0;
+				for (val in sw){
+					index = which(val == usw);
+					if (length(index) > 0 && index != running_index){
+						running_value = floor(running_value) + 1;
+						running_index = index;
+						rev = c(rev, running_value);
 					} else {
-						rev = 1:length(df.p.r.wg.st$Index);
-					}
-					
-					if (inverse){
-						Rev.Num = c(Rev.Num, rev - max(rev));
-					} else {
-						Rev.Num = c(Rev.Num, rev);
-					}
-					if (length(Rev.Num) != length(Index)){
-						print(paste(wgid, st))
-						print(df.p.r.wg.st$Index)
-						return(NULL);
-					}
+						running_value = running_value + betweenChangeIncrements;
+						if (floor(running_value) == 0) {
+							rev = c(rev, running_value-betweenChangeIncrements);
+						} else {
+							rev = c(rev, running_value);
+						}								
+					}							
 				}
+			} else {
+				rev = 1:length(df.wg.st$Index);
+			}
+			
+			if (inverse){
+				if (incrementIntegerOnChange){
+					### Note if the student doesn't do any work he or she will not get a 0.0
+					# IURev.Num, instead will get -1.00, -1.001, etc.
+					rev = max(c(1,floor(rev))) - rev;
+					rev = -(rev + 2*(1.0 - (rev - floor(rev)))%%1);
+					Rev.Num = c(Rev.Num, rev);
+				} else {
+					Rev.Num = c(Rev.Num, rev - max(rev));
+				}
+			} else {
+				Rev.Num = c(Rev.Num, rev);
+			}
+			if (length(Rev.Num) != length(Index)){
+				return(NULL);
 			}
 		}
 	}
@@ -496,7 +568,6 @@ getRevisionNumber = function(df, inverse=FALSE, incrementIntegerOnChange=FALSE, 
 	tdf = tdf[order(tdf$Index),];
 	return (tdf$Rev.Num)
 }
-
 
 ## Uses regular expression matching to find the step number in the front of a step title
 getStepNum = function (df){
@@ -524,6 +595,19 @@ getStepNum = function (df){
 	return (stepNums);
 }
 
+collapseStepNumBranches = function (Step.Num){
+	Step.NumNB = round(10000*as.numeric(as.character(Step.Num)))
+	branchActivities = 10000*floor(Step.NumNB[Step.NumNB%%100!=0]/10000) + 100
+	Step.NumNB[Step.NumNB%in%branchActivities] = Step.NumNB[Step.NumNB%in%branchActivities] - 100
+	## convert first step of branchActivities to zero, e.g. 5.1 to 5.0
+	#levels(Step.Num) = c(levels(Step.Num),unique(as.character(branchActivities)))
+	#Step.NumNB[Step.Num%in%(branchActivities+0.01)] = as.factor(as.character(as.numeric(as.character(Step.Num[Step.Num%in%(branchActivities+0.01)])) - 0.01))
+
+	Step.NumNB[Step.NumNB%%100!=0] = 1000*floor(Step.NumNB[Step.NumNB%%100!=0]/1000) + 100*(Step.NumNB[Step.NumNB%%100!=0]%%100)
+	Step.NumNB = as.factor(as.numeric(as.character(Step.NumNB/10000)))
+	return (Step.NumNB)
+}
+
 
 ### This function is used on reading excel files into data and intrepets columns as numeric or character
 ### These classes will not be the final classes, many will be factors, use getColClasses.final to
@@ -547,9 +631,8 @@ getColClasses.read = function (colNames){
 		colName = cnames[i];
 		
 		if (
-			grepl("Time",colName)[1] ||
-			colName ==  "Teacher.Score" ||
-			colName ==  "Research.Score" ||
+			grepl("Time.Spent",colName)[1] ||
+			grepl("Score",colName)[1] ||
 			colName == "Rev.Num" ||
 			colName == "IRev.Num" ||
 			colName == "Step.Num"  ||
@@ -610,6 +693,7 @@ getColClasses.final = function (colNames){
 			colName ==  "Run.Id" ||
 			colName == "Step.Type" ||
 			colName == "Step.Work.Id" ||
+			colName == "Step.Num" ||
 			colName == "Action"  ||
 			colName == "Action.Performer"  ||
 			colName == "Changed.Idea.Workgroup.Id"  ||
@@ -621,11 +705,9 @@ getColClasses.final = function (colNames){
 		){
 			colClasses = c(colClasses, "factor");
 		} else if (
-			grepl("Time",colName)[1] ||
+			grepl("Time.Spent",colName)[1] ||
 			grepl("Rev.Num",colName)[1] ||
-			colName ==  "Teacher.Score" ||
-			colName ==  "Research.Score" ||
-			colName == "Step.Num" ||
+			grepl("Score",colName)[1] ||
 			colName == "Index" ||
 			colName == "Times.Copied" ||
 			colName == "Basket.Revision" ||
