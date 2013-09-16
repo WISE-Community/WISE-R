@@ -1,5 +1,299 @@
 library(diagram)
 library(plotrix)
+
+############# SPECIFIC STEP TYPE PLOTS
+plot.wisedata.frame = function(df,plotTypes, ...){
+	args = list(...)
+	if (is.null(args$plot.dir)){
+		plot.dir = NULL
+	} else {
+		plot.dir = eval(args$plot.dir)
+	}
+	if (!is.null(args$ncols)){
+		ncols = eval(args$ncols)
+		nrows = ceiling(nrow(df) * length(plotTypes) / ncols)
+	} else if (!is.null(args$nrows)){
+		## we need to make sure that nrows is a multiple of plotTypes
+		nrows = ceiling(eval(args$nrows) / length(plotTypes)) * length(plotTypes)
+		ncols = ceiling(nrow(df) * length(plotTypes) / nrows)
+	} else {
+		ncols = nrow(df)
+		nrows = length(plotTypes)
+	}
+	# If we are plotting more than one step create appropriate par
+	if (nrow(df) > 1){
+		l = nrow(df)
+		par(mfrow=c(nrows, ncols))
+		reps = nrows / length(plotTypes)
+		s = numeric()
+		for (r in 1:nrows){
+			rep = ceiling(r / length(plotTypes))
+			rmod = (r-1) %% length(plotTypes)
+			for (c in 1:ncols){
+				s = c(s, ((rep-1)*length(plotTypes)*ncols)+rmod+1+(c-1)*length(plotTypes))
+			}
+		}
+		#print(s)
+		#print(matrix(s, nrows, ncols, byrow=TRUE))
+		layout(matrix(s, nrows, ncols, byrow=TRUE))
+	}
+
+	for (r in 1:nrow(df)){
+		sw = as.wiseSW(df[r,], ...)
+		plot.wiseSW(sw, plotTypes, Step.Num = df[r,]$Step.Num, Rev.Num = df[r,]$Rev.Num, Workgroup.Id = df[r,]$Workgroup.Id, ...)
+	}
+}
+plot.wiseSW = function(sw, plotTypes, ...) UseMethod ("plot")
+plot.wiseSW.default = function(sw, ...){return("No plot function for this type of step.")}
+plot.wiseSW.CarGraph = function (sw, plotTypes, ...){
+	#args = as.list(substitute(list(...)))[-1L]
+	args = list(...)
+	if (is.null(args$xlim)){
+		xlim=c(0, max(c(sw$predictions$x,sw$observations$x)))
+	} else {
+		xlim = eval(args$xlim)
+	}
+	if (is.null(args$plot.dir)){
+		plot.dir = NULL
+	} else {
+		plot.dir = eval(args$plot.dir)
+	}
+	if (is.null(args$Workgroup.Id)){
+		Workgroup.Id = ""
+	} else {
+		Workgroup.Id = eval(args$Workgroup.Id)
+	}
+	if (is.null(args$Step.Num)){
+		Step.Num = NULL
+	} else {
+		Step.Num = eval(args$Step.Num)
+	}
+	if (is.null(args$Rev.Num)){
+		Rev.Num = NULL
+	} else {
+		Rev.Num = eval(args$Rev.Num)
+	}
+
+	### first time count to create appropriate # of rows
+	count = 0
+	for (type in plotTypes){
+		if (type == "timedObservations"){
+			count = count + 1
+		} else if (type == "predictions"){
+			count = count + 1
+		}
+	}
+
+	if (count > 0){
+		for (type in plotTypes){
+			if (type == "timedObservations"){
+				if (!is.null(plot.dir)){
+					plot.timedObservations(sw$observations, xlim, plot.file = paste(plot.dir,Step.Num,"-","-",Workgroup.Id,"-",Rev.Num,"-timedObservations.png",sep=""), ...)
+				} else {
+					plot.timedObservations(sw$observations, xlim, ...)
+				}
+				
+			} else if (type == "predictions"){
+				if (!is.null(plot.dir)){
+					plot.predictions(sw$predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=paste("Revision",(Rev.Num-1)), ...)
+				} else {
+					plot.predictions(sw$predictions, xlim, plot.title=paste("Revision",(Rev.Num-1)), ...)
+				}				
+			}
+		}	
+	}	
+}
+plot.wiseSW.Grapher = function (sw, plotTypes, ...){
+	#args = as.list(substitute(list(...)))[-1L]
+	args = list(...)
+	if (is.null(args$xlim)){
+		xlim=c(0, max(c(sw$predictions$x,sw$observations$x)))
+	} else {
+		xlim = eval(args$xlim)
+	}
+	if (is.null(args$plot.dir)){
+		plot.dir = NULL
+	} else {
+		plot.dir = eval(args$plot.dir)
+	}
+	if (is.null(args$Workgroup.Id)){
+		Workgroup.Id = ""
+	} else {
+		Workgroup.Id = eval(args$Workgroup.Id)
+	}
+	if (is.null(args$Step.Num)){
+		Step.Num = NULL
+	} else {
+		Step.Num = eval(args$Step.Num)
+	}
+	if (is.null(args$Rev.Num)){
+		Rev.Num = NULL
+	} else {
+		Rev.Num = eval(args$Rev.Num)
+	}
+	if (is.null(args$plot.title)){
+		plot.title = NULL
+	} else {
+		plot.title = eval(args$plot.title)
+	}
+
+	### first time count to create appropriate # of rows
+	count = 0
+	for (type in plotTypes){
+		if (type == "predictions"){
+			count = count + 1
+		}
+	}
+
+	if (count > 0){
+		for (type in plotTypes){
+			if (type == "predictions"){
+				if (!is.null(plot.dir)){
+					plot.predictions(sw$predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=plot.title, ...)
+				} else {
+					plot.predictions(sw$predictions, xlim, plot.title=plot.title, ...)
+				}				
+			}
+		}	
+	}	
+}
+############# GENERAL GRAPH TYPES
+plot.predictions = function (predictions, ...){
+	#args = as.list(substitute(list(...)))[-1L]
+	args = list(...)
+	if (is.null(args$xlim)){
+		xlim=c(0, max(predictions$x))
+	} else {
+		xlim = eval(args$xlim)
+	}
+	if (is.null(args$ylim)){
+		ylim=c(0, max(predictions$y))
+	} else {
+		ylim = eval(args$ylim)
+	}
+	if (is.null(args$expected)){
+		expected = NULL
+	} else {
+		expected = eval(args$expected)
+	}
+	if (is.null(args$cols)){
+		cols = rainbow(length(unique(predictions$id)))
+	} else {
+		cols = eval(args$cols)
+	}
+	if (is.null(args$plot.width)){
+		plot.width = 480
+	} else {
+		plot.width = eval(args$plot.width)
+	}
+	if (is.null(args$plot.height)){
+		plot.height = 320
+	} else {
+		plot.height = eval(args$plot.height)
+	}
+	if (is.null(args$plot.file)){
+		plot.file = NULL
+	} else {
+		plot.file = eval(args$plot.file)
+		op = par(mar=c(0,0,0,0))
+		png(plot.file, plot.width, plot.height)
+	}
+	if (is.null(args$lwd)){
+		lwd = 2
+	} else {
+		lwd = eval(args$lwd)
+	}
+	if (is.null(args$plot.title)){
+		main = ""
+	} else {
+		main = eval(args$plot.title)
+	}
+	plot(-100, -100, xlab="Time", ylab="Position", xlim=xlim, ylim=ylim, main=main)
+	for (i in 1:length(unique(predictions$id))){
+		id = unique(predictions$id)[i]
+		pred = subset(predictions, id == id)
+		if (nrow(pred) > 0){
+			lines(pred$x, pred$y,col=cols[i],lwd=lwd,type='l')
+		}
+		if (!is.null(expected)){
+			expec = subset(expected, id == id)
+			if (nrow(expec) > 0){
+				lines(expec$x, expec$y,col=cols[i],lwd=lwd/2, lty=3,type='l')
+			}
+		}
+
+	}
+	if (!is.null(plot.file)){
+	 dev.off()
+	 par(op)
+	}
+}
+
+plot.timedObservations = function (observations, ...){
+	if (length(observations$x) == 0) return(NULL);
+
+	#args = as.list(substitute(list(...)))[-1L]
+	args = list(...)
+	if (is.null(args$xlim)){
+		xlim=c(0, max(observations$x))
+	} else {
+		xlim = eval(args$xlim)
+	}
+	if (is.null(args$plot.width)){
+		plot.width = 480
+	} else {
+		plot.width = eval(args$plot.width)
+	}
+	if (is.null(args$plot.height)){
+		plot.height = max(observations$t/1000)*20
+	} else {
+		plot.height = eval(args$plot.height)
+	} 
+	if (is.null(args$plot.file)){
+		plot.file = NULL
+	} else {
+		plot.file = eval(args$plot.file)
+		op = par(mar=c(0,0,0,0))
+		png(plot.file, plot.width, plot.height)
+	}
+	if (is.null(args$lwd)){
+		lwd = 2
+	} else {
+		lwd = eval(args$lwd)
+	}
+
+	plot(-100, -100, xlab="Graph Time", ylab="Ellapsed Time (Seconds)", xlim=xlim, ylim=c(max(observations$t/1000),0))
+	### iterate through observations to look for a change in type
+	prevIndex = 0
+	t = numeric()
+	x = numeric()
+	Action = observations$Action[1]
+	for (o in 1:nrow(observations)){
+		obs = observations[o,]
+		Index = obs$Index
+		if (Index != prevIndex + 1){
+			if (Action == "GraphPressed"){
+				lines(x,t,col="#ff00ff",lwd=lwd)
+			} else if (Action == "Play" || Action == "Start"){
+				t = c(t, obs$t/1000)
+				x = c(x, obs$x)
+				lines(x,t,col="#44ff44",lwd=lwd)
+			} 
+			t = numeric()
+			x = numeric()
+		}
+		t = c(t, obs$t/1000)
+		x = c(x, obs$x)
+		Action = obs$Action
+		prevIndex = Index
+	}
+	if (!is.null(plot.file)){
+	 dev.off()
+	 par(op)
+	}
+}
+
+
 error.bar = function(x, y, upper, lower=upper, length=0.1,...){
 	if(length(x) != length(y) | length(y) !=length(lower) | length(lower) != length(upper))
 	stop("vectors must be same length")

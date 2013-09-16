@@ -23,44 +23,46 @@ read.xlsx.special = function (dir){
 			j = fromJSON(d);
 			### go through each student
 			for (s in j[[which(names(j)=="students")]]){
-				Workgroup.Id = s$workgroupId;				
+				Workgroup.Id = as.factor(s$workgroupId);				
 				if (length(s$wiseIds) > 0){
-					Wise.Id.1 = s$wiseIds[1]
+					Wise.Id.1 = as.factor(s$wiseIds[1])
 					if (length(s$wiseIds) > 1){
-						Wise.Id.2 = s$wiseIds[2]
+						Wise.Id.2 = as.factor(s$wiseIds[2])
 						if (length(s$wiseIds) > 2){
-							Wise.Id.3 = s$wiseIds[3]
+							Wise.Id.3 = as.factor(s$wiseIds[3])
 						} else {
-							Wise.Id.3 = ""
+							Wise.Id.3 = as.factor("")
 						}
 					} else {
-						Wise.Id.2 = ""
-						Wise.Id.3 = ""
+						Wise.Id.2 = as.factor("")
+						Wise.Id.3 = as.factor("")
 					}
 				} else {
-					Wise.Id.1 = ""
-					Wise.Id.2 = ""
-					Wise.Id.3 = ""
+					Wise.Id.1 = as.factor("")
+					Wise.Id.2 = as.factor("")
+					Wise.Id.3 = as.factor("")
 				}
 				Step.Work.Id = vector();
 				### go through each visit of this step
 				for (visit in s$studentDataArray){
-					Step.Work.Id = visit$stepWorkId;
-					Student.Work = "";
+					Step.Work.Id = as.factor(visit$stepWorkId);
+					Student.Work = as.factor("");
 					## go to each response within this step
 					if (length(visit$data$nodeStates) > 0){
 						for (ri in 1:length(visit$data$nodeStates)){
 							response = visit$data$nodeStates[[ri]];
-							Student.Work = paste(Student.Work, "Response #",ri,": ",toJSON(response),"\n ",sep="");
+							Student.Work = as.character(paste(Student.Work, "Response #",ri,": ",toJSON(response),"\n ",sep=""));
 						}
 					}
 					## Finally, populate the out data frame
+
 					df.line = data.frame(Workgroup.Id = Workgroup.Id, Wise.Id.1 = Wise.Id.1, Wise.Id.2 = Wise.Id.2, Wise.Id.3 = Wise.Id.3, Step.Work.Id = Step.Work.Id, Student.Work = Student.Work);	
 					df.out = rbind(df.out, df.line);
 				}				
 			}
 		}
 	}
+	df.out$Student.Work = as.character(df.out$Student.Work)
 	return (df.out);
 }
 

@@ -95,7 +95,6 @@ score.wisedata.frame = function (obj, subset=TRUE, select, drop = FALSE, score.r
 		return (scores);
 	}
 }
-wiseDF.scored = score(subset(wiseDF,Step.Num.NoBranch%in%(2.03,5.03))[1:20,], score.rubric = rubrics, score.colName = "Research.Score", is.data.frame.out=FALSE)
 
 #score(wiseDF.exp[31,], score.rubrics=rubrics)
 
@@ -219,6 +218,8 @@ score.wiseSW.Sensor = function (obj, score.type, score.rubric, ...){
 			return (scoreGraph.ruleRubric(tail(obj$data,1)[[1]], score.rubric))
 		} else if (score.type == "rawpoints"){
 			return (scoreGraph.rawpoints(tail(obj$data,1)[[1]], score.rubric));
+		} else if (score.type == "countpoints"){
+			return (nrow(tail(obj$data,1)[[1]]))
 		} else {
 			return (NA);
 		}
@@ -369,7 +370,8 @@ studentDataString.wiseSW.OpenResponse = function (obj){
 	if (length(obj) == 0) return ("N/A");
 	if (TRUE){
 		if (!is.null(obj$data)){
-			return (obj$data);
+			#if (length(obj$data) > 1) print(obj$data)
+			return (tail(obj$data,1));
 		} else {
 			return ("N/A");
 		}

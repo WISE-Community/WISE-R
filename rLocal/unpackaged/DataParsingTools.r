@@ -10,91 +10,105 @@ library(rjson);
 ### the special DF will be a special download of a step type.
 ### the otherDF will be something else which may be of use to pulling student data
 ### the contents of which are determined by the step type
-as.wiseSW = function (row, specialDF, otherDF, stepType=NULL){
-	if (is.null(nrow(row))){
-		print("The inputted row must contain column names.");
+as.wiseSW = function(obj, ...) UseMethod("as.wiseSW")
+as.wiseSW.default = function (obj, ...){return("Cannot convert input into parsed wise student work")}
+as.wiseSW.wisedata.frame = function(obj, ...){
+	if (is.null(nrow(obj)) && length(which(names(obj) == "Step.Type")) > 0){
+		print("The inputted row must contain column names and a step type.");
 		return (NULL);
-	} else if (nrow(row) > 1){
-		print ("Your inputted row data frame contains more than one row, top one being used.");
-		row = row[1,];
-	}
-	sw = list();
-	class(sw) = c("wiseSW","list");
-	###### differentiate by type of step
-	if (is.null(stepType)) stepType = row$Step.Type[1];
-	# get thte class name from the step type and prepend e.g. wise.Html is a type of wise
-	if (stepType == "Questionnaire" || stepType == "AssessmentList"){
-		class(sw) = c(paste("wiseSW", "AssessmentList", sep="."),class(sw));
-		### which indices contain Student Work?
-		indices = grep("Student.Work", names(row));
-		# This type of step may have work on all columns of Student.Work
-		for (i in indices){
-			val = row[1, i];
-			if (val == "" || val == "N/A") val = "";
-			sw[[length(sw)+1]] = val;
+	} else if (nrow(obj) > 1){
+		## data frame has more than one row, return a list of student work
+		l = list()
+		for (r in 1:nrow(obj)){
+			sw = list();
+			class(sw) = c(paste("wiseSW", obj$Step.Type[r], sep="."), "wiseSW","list");
+			sw = as.wiseSW(sw, obj[r,], ...)
+			l[[r]] = sw;	
 		}
-	} else if (stepType == "OpenResponse" || stepType == "Note"){
-		class(sw) = c(paste("wiseSW", "OpenResponse", sep="."),class(sw));
-		#### which indices contain Student Work?
-		indices = grep("Student.Work", names(row));
-		## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-		row = expandMultipleResponses(row, TRUE)
-		responses = row[1,indices];
-		responses.notblankL = responses != "";
-		responses.notblankL[1] = TRUE; ### keep the first
-		responses = responses[responses.notblankL];
-		data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
-		## with c-rater feedback student responses are stuck in brackets like Student Response: []
-		for (r in responses){
-			if (regexpr("Student Response: \\[",r)[1] > -1){
-				exp = regexpr("Student Response: \\[",r)
-				start = exp[1] + attr(exp, "match.length") + 1
-				exp = regexpr("Student Response: \\[.*?\\]",r)
-				stop = exp[1] + attr(exp, "match.length") - 3
+		return (l)
+	} else {
+		# single row, just return student work, not in a list
+		sw = list();
+		class(sw) = c(paste("wiseSW", obj$Step.Type[1], sep="."), "wiseSW","list");
+		sw = as.wiseSW(sw, obj[1,], ...)
+		return(sw)
+	}	
+}
+as.wiseSW.wiseSW = function (sw, row, ...){
+	indices = grep("Student.Work", names(row));
+	for (i in 1:length(indices)){
+		sw[[i]] = row[1,indices[i]]
+	}
+	return(sw)
+}
+
+as.wiseSW.wiseSW.Questionnaire = function(sw, row){
+	### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	# This type of step may have work on all columns of Student.Work
+	for (i in indices){
+		val = row[1, i];
+		if (val == "" || val == "N/A") val = "";
+		sw[[length(sw)+1]] = val;
+	}
+	return(sw)
+}
+as.wiseSW.wiseSW.OpenResponse = function(sw, row){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	row = expandMultipleResponses(row, TRUE)
+	responses = row[1,indices];
+	responses.notblankL = responses != "";
+	responses.notblankL[1] = TRUE; ### keep the first
+	responses = responses[responses.notblankL];
+	data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
+	## with c-rater feedback student responses are stuck in brackets like Student Response: []
+	for (r in responses){
+		if (regexpr("Student Response: \\[",r)[1] > -1){
+			exp = regexpr("Student Response: \\[",r)
+			start = exp[1] + attr(exp, "match.length") + 1
+			exp = regexpr("Student Response: \\[.*?\\]",r)
+			stop = exp[1] + attr(exp, "match.length") - 3
+			d = substring(r, start, stop);
+			data = c(data, d);
+			## autoscoring?
+			if (regexpr("Check Answer: \\[",r)[1] > -1){
+				exp = regexpr("Check Answer: \\[",r)
+				start = exp[1] + attr(exp, "match.length")
+				exp = regexpr("Check Answer: \\[.*?\\]",r)
+				stop = exp[1] + attr(exp, "match.length") - 2
 				d = substring(r, start, stop);
-				data = c(data, d);
-				## autoscoring?
-				if (regexpr("Check Answer: \\[",r)[1] > -1){
-					exp = regexpr("Check Answer: \\[",r)
-					start = exp[1] + attr(exp, "match.length")
-					exp = regexpr("Check Answer: \\[.*?\\]",r)
-					stop = exp[1] + attr(exp, "match.length") - 2
-					d = substring(r, start, stop);
-					if (d == "true"){
-						Check.Answer = c(Check.Answer, TRUE);
-					} else {
-						Check.Answer = c(Check.Answer, FALSE);
-					}
+				if (d == "true"){
+					Check.Answer = c(Check.Answer, TRUE);
+				} else {
+					Check.Answer = c(Check.Answer, FALSE);
 				}
-				## Yes we are checking answer for auto-score
-				if (tail(Check.Answer,1)){
-					### c-rater?
-					if (regexpr("CRater",r)[1] > -1){
-						Auto.Score.Type = c(Auto.Score.Type, "CRater");
-						if (regexpr("CRater Score: \\[",r)[1] > -1){
-							exp = regexpr("CRater Score: \\[",r)
-							start = exp[1] + attr(exp, "match.length")
-							#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
-							exp = regexpr("CRater Score: \\[.*?\\]",r)
-							stop = exp[1] + attr(exp, "match.length") - 2
-							d = substring(r, start, stop);
-							Auto.Score = c(Auto.Score, as.numeric(d))
-						} else {
-							Auto.Score = c(Auto.Score, NA)
-						}
-						if (regexpr("CRater Feedback: \\[",r)[1] > -1){
-							exp = regexpr("CRater Feedback: \\[",r)
-							start = exp[1] + attr(exp, "match.length")
-							exp = regexpr("CRater Feedback: \\[.*?\\]",r)
-							stop = exp[1] + attr(exp, "match.length") - 2
-							d = substring(r, start, stop);
-							Auto.Feedback = c(Auto.Feedback, d)
-						} else {
-							Auto.Feedback = c(Auto.Feedback, "")
-						}
+			}
+			## Yes we are checking answer for auto-score
+			if (tail(Check.Answer,1)){
+				### c-rater?
+				if (regexpr("CRater",r)[1] > -1){
+					Auto.Score.Type = c(Auto.Score.Type, "CRater");
+					if (regexpr("CRater Score: \\[",r)[1] > -1){
+						exp = regexpr("CRater Score: \\[",r)
+						start = exp[1] + attr(exp, "match.length")
+						#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
+						exp = regexpr("CRater Score: \\[.*?\\]",r)
+						stop = exp[1] + attr(exp, "match.length") - 2
+						d = substring(r, start, stop);
+						Auto.Score = c(Auto.Score, as.numeric(d))
 					} else {
-						Auto.Score.Type = c(Auto.Score.Type, "none")
 						Auto.Score = c(Auto.Score, NA)
+					}
+					if (regexpr("CRater Feedback: \\[",r)[1] > -1){
+						exp = regexpr("CRater Feedback: \\[",r)
+						start = exp[1] + attr(exp, "match.length")
+						exp = regexpr("CRater Feedback: \\[.*?\\]",r)
+						stop = exp[1] + attr(exp, "match.length") - 2
+						d = substring(r, start, stop);
+						Auto.Feedback = c(Auto.Feedback, d)
+					} else {
 						Auto.Feedback = c(Auto.Feedback, "")
 					}
 				} else {
@@ -103,198 +117,278 @@ as.wiseSW = function (row, specialDF, otherDF, stepType=NULL){
 					Auto.Feedback = c(Auto.Feedback, "")
 				}
 			} else {
-				data = c(data, r);
-				Check.Answer = c(Check.Answer, FALSE);
 				Auto.Score.Type = c(Auto.Score.Type, "none")
 				Auto.Score = c(Auto.Score, NA)
 				Auto.Feedback = c(Auto.Feedback, "")
 			}
+		} else {
+			data = c(data, r);
+			Check.Answer = c(Check.Answer, FALSE);
+			Auto.Score.Type = c(Auto.Score.Type, "none")
+			Auto.Score = c(Auto.Score, NA)
+			Auto.Feedback = c(Auto.Feedback, "")
 		}
-		sw[["data"]] = data;
-		sw[["Check.Answer"]] = Check.Answer
-		sw[["Auto.Score.Type"]] = Auto.Score.Type
-		sw[["Auto.Score"]] = Auto.Score
-		sw[["Auto.Feedback"]] = Auto.Feedback
-	} else if (stepType == "Mysystem2"){
-		class(sw) = c(paste("wiseSW", "Mysystem2", sep="."),class(sw));
-		#### which indices contain Student Work?
-		indices = grep("Student.Work", names(row));
-		## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-		row = expandMultipleResponses(row, TRUE)
-		responses = row[1,indices];
-		responses.notblankL = responses != "";
-		responses.notblankL[1] = TRUE; ### keep the first
-		responses = responses[responses.notblankL];
-		data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
-		## with c-rater feedback student responses are stuck in brackets like Student Response: []
-		for (r in responses){
-			if (TRUE){
-				data = c(data, r);
-				## autoscoring?
-				if (regexpr("Is Submit: ",r)[1] > -1){
-					exp = regexpr("Is Submit: ",r)
-					start = exp[1] + attr(exp, "match.length")
-					exp = regexpr("Is Submit: .*?,",r)
-					stop = exp[1] + attr(exp, "match.length") - 2
-					d = substring(r, start, stop);
-					if (d == "true"){
-						Check.Answer = c(Check.Answer, TRUE);
-					} else {
-						Check.Answer = c(Check.Answer, FALSE);
-					}
+	}
+	sw[["data"]] = data;
+	sw[["Check.Answer"]] = Check.Answer
+	sw[["Auto.Score.Type"]] = Auto.Score.Type
+	sw[["Auto.Score"]] = Auto.Score
+	sw[["Auto.Feedback"]] = Auto.Feedback
+	return(sw)
+}
+as.wiseSW.wiseSW.Mysystem2 = function (sw, row){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	row = expandMultipleResponses(row, TRUE)
+	responses = row[1,indices];
+	responses.notblankL = responses != "";
+	responses.notblankL[1] = TRUE; ### keep the first
+	responses = responses[responses.notblankL];
+	data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
+	## with c-rater feedback student responses are stuck in brackets like Student Response: []
+	for (r in responses){
+		if (TRUE){
+			data = c(data, r);
+			## autoscoring?
+			if (regexpr("Is Submit: ",r)[1] > -1){
+				exp = regexpr("Is Submit: ",r)
+				start = exp[1] + attr(exp, "match.length")
+				exp = regexpr("Is Submit: .*?,",r)
+				stop = exp[1] + attr(exp, "match.length") - 2
+				d = substring(r, start, stop);
+				if (d == "true"){
+					Check.Answer = c(Check.Answer, TRUE);
+				} else {
+					Check.Answer = c(Check.Answer, FALSE);
 				}
-				## Yes we are checking answer for auto-score
-				if (tail(Check.Answer,1)){
-					### c-rater?
-					if (regexpr("Success: ",r)[1] > -1){
-						exp = regexpr("Success: ",r)
-							start = exp[1] + attr(exp, "match.length")
-							#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
-							exp = regexpr("Success: .*?,",r)
-							stop = exp[1] + attr(exp, "match.length") - 2
-							d = substring(r, start, stop);
-							score = 0
-							if (d == "true") score = 1
-							Auto.Score = c(Auto.Score, score)
-					} else {
-						Auto.Score = c(Auto.Score, NA)
-					}
-					if (regexpr("Feedback: ",r)[1] > -1){
-						exp = regexpr("Feedback: ",r)
+			}
+			## Yes we are checking answer for auto-score
+			if (tail(Check.Answer,1)){
+				### c-rater?
+				if (regexpr("Success: ",r)[1] > -1){
+					exp = regexpr("Success: ",r)
 						start = exp[1] + attr(exp, "match.length")
-						exp = regexpr("Feedback: .*",r)
+						#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
+						exp = regexpr("Success: .*?,",r)
 						stop = exp[1] + attr(exp, "match.length") - 2
 						d = substring(r, start, stop);
-						Auto.Feedback = c(Auto.Feedback, d)
-					} else {
-						Auto.Feedback = c(Auto.Feedback, "")
-					}
+						score = 0
+						if (d == "true") score = 1
+						Auto.Score = c(Auto.Score, score)
 				} else {
 					Auto.Score = c(Auto.Score, NA)
+				}
+				if (regexpr("Feedback: ",r)[1] > -1){
+					exp = regexpr("Feedback: ",r)
+					start = exp[1] + attr(exp, "match.length")
+					exp = regexpr("Feedback: .*",r)
+					stop = exp[1] + attr(exp, "match.length") - 2
+					d = substring(r, start, stop);
+					Auto.Feedback = c(Auto.Feedback, d)
+				} else {
 					Auto.Feedback = c(Auto.Feedback, "")
 				}
 			} else {
-				data = c(data, r);
-				Check.Answer = c(Check.Answer, FALSE);
 				Auto.Score = c(Auto.Score, NA)
 				Auto.Feedback = c(Auto.Feedback, "")
 			}
-		}
-		sw[["data"]] = data;
-		sw[["Check.Answer"]] = Check.Answer
-		sw[["Auto.Score"]] = Auto.Score
-		sw[["Auto.Feedback"]] = Auto.Feedback
-	} else if (stepType == "Sensor"){
-		class(sw) = c(paste("wiseSW", "Sensor", sep="."),class(sw));
-		#### which indices contain Student Work?
-		indices = grep("Student.Work", names(row));
-		### Assumes that data comes from the spcial parser, there may be multiple student responses, the data will contain
-		### a list of responses and prediction values
-		val = row[1,indices[1]]; 
-		lval = strsplit(val, "Response #[0-9]+: ")[[1]]
-
-		responses = list();
-		data = list();
-		if (length(lval) > 1){
-			lval = lval[2:length(lval)];
-			for (i in 1:length(lval)){
-				ldata = fromJSON(lval[i]);
-				predictions = convertListOfListToListOfVectors(ldata$predictionArray)
-				predictionsdf = data.frame(x=predictions$x, y=predictions$y)
-				data[[i]] = predictionsdf
-				response = ldata$response
-				responses[[i]] = response
-			}
-		}
-		sw[['response']] = responses;
-		sw[['data']] = data;
-	} else if (stepType == "CarGraph"){	
-		class(sw) = c(paste("wiseSW", "CarGraph", sep="."),class(sw));
-		#### which indices contain Student Work?
-		indices = grep("Student.Work", names(row));
-		# the car graph step has json data
-		val = row[1, indices[1]];
-		if (val == "" || val == "N/A") val = NA;
-		if (grepl("Response #[0-9]+: ", val)){ 
-			datal = fromJSON(sub("Response #[0-9]+: ", "",val));
-			sw[["id"]] = datal[[1]]$id; 
-			sw[["data"]] = convertListOfListToListOfVectors(datal[[1]]$predictions);
 		} else {
-			sw[["data"]] = NA;
-		} 				
-	} else if (stepType == "ExplanationBuilder"){
-		class(sw) = c(paste("wiseSW", stepType, sep="."),class(sw));
-		#### There is no data in the student work, so look in special for some fields
-		### special holds the ideas that were sorted and into where
-		if (!missing(specialDF)){
-			## find the appropriate row
-			#srows= subset(specialDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id)&as.character(Step.Title)==as.character(row$Step.Title)&as.character(Start.Time)==as.character(row$Start.Time));
-			srows= subset(specialDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id)&as.character(Step.Title)==as.character(row$Step.Title)&as.character(specialDF[,grep("Start.Time",names(specialDF))[1]])==as.character(row[,grep("Start.Time",names(row))[1]]));
-			sw[["answer"]] = srows$Answer[1];
-			idea.used = character();
-			idea.x = numeric();
-			idea.y = numeric();
-			idea.color = character();
-			for (i in 1:nrow(srows)){
-				srow = srows[i,];
-				idea.used = c(idea.used, as.character(srow$Idea.Text)[1])
-				idea.x = c(idea.x, srow$Idea.X.Position[1])
-				idea.y = c(idea.y, srow$Idea.Y.Position[1])
-				idea.color = c(idea.color, as.character(srow$Idea.Color)[1])
-			}
-			sw[['idea.used']] = idea.used;
-			sw[['idea.x']] = idea.x;
-			sw[['idea.y']] = idea.y;
-			sw[['idea.color']] = idea.color;
+			data = c(data, r);
+			Check.Answer = c(Check.Answer, FALSE);
+			Auto.Score = c(Auto.Score, NA)
+			Auto.Feedback = c(Auto.Feedback, "")
 		}
-		## the other df is the idea manager export, has the source of all ideas
-		if (!missing(otherDF)){
-			idea.source = character();
-			fromPublic = vector()
-			Idea.Id = vector()
-			# get timestamp for )step
-			ts.start = timestampAsNumeric(row[,grep("Start.Time",names(row))[1]])
-			tindex = grep("time.spent",tolower(names(row)))[1]
-			ts.end = ts.start + row[1,tindex]
-			## subset from idea manager the relevant rows from the private basket
-			orows = subset(otherDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id))
-			if (nrow(orows) > 0){
-				### get basket revision number of first idea created after timestamp
-				rowsAfterTime = timestampAsNumeric(orows[,grep("Timestamp.Idea.Created",names(orows))[1]])>ts.end
-				
-				if (sum(rowsAfterTime) > 0){
-					xrow = subset(orows, rowsAfterTime)[1,];
-					### there is a row in which the time is
-					br = xrow$Basket.Revision[1]-1	
-				} else {
-					### the last revision is valid
-					br = tail(orows$Basket.Revision,1)
-				}
-				## get last basket revision
-				orows = subset(orows, Basket.Revision == br);
-				if (nrow(orows)>0){
-					for (i in 1:nrow(orows)){
-						orow = orows[i,]
-						if (as.character(orow$Trash) != "1.0"){
-							idea.source = c(idea.source, as.character(orow$Idea.Text)[1])
-							fromPublic = c(fromPublic, as.numeric(as.character(orow$Was.Copied.From.Public)[1]))
-							Idea.Id = c(Idea.Id, as.numeric(as.character(orow$Idea.Id)[1]))
-						}	
-					}
-				} 
-			}
+	}
+	sw[["data"]] = data;
+	sw[["Check.Answer"]] = Check.Answer
+	sw[["Auto.Score"]] = Auto.Score
+	sw[["Auto.Feedback"]] = Auto.Feedback
+	return (sw)
+}
+as.wiseSW.wiseSW.Sensor = function (sw, row){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	### Assumes that data comes from the spcial parser, there may be multiple student responses, the data will contain
+	### a list of responses and prediction values
+	val = row[1,indices[1]]; 
+	lval = strsplit(val, "Response #[0-9]+: ")[[1]]
 
-			sw[['idea.source']] = idea.source;
-			sw[['Was.Copied.From.Public']] = fromPublic;
-			sw[['Idea.Id']] = Idea.Id;
+	responses = list();
+	data = list();
+	if (length(lval) > 1){
+		lval = lval[2:length(lval)];
+		for (i in 1:length(lval)){
+			ldata = fromJSON(lval[i]);
+			predictions = convertListOfListToListOfVectors(ldata$predictionArray)
+			predictionsdf = data.frame(x=predictions$x, y=predictions$y)
+			data[[i]] = predictionsdf
+			response = ldata$response
+			responses[[i]] = response
+		}
+	}
+	sw[['predictions']] = data;
+	sw[['response']] = responses;
+	return(sw)
+}
+as.wiseSW.wiseSW.Grapher = function (sw, row, ...){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	# the car graph step has json data
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	if (grepl("Response #[0-9]+: ", val)){ 
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
+		### create a data frame that captures:
+		# id, x, y;
+		sw[['predictions']] = data.frame(id = character(), x = numeric(), y = numeric())
+		if (length(datal$predictionArray) > 0){
+			for (p in 1:length(datal$predictionArray)){
+				if (length(datal$predictionArray[[p]]$predictions) > 0){
+					pdf = data.frame(
+						id = datal$predictionArray[[p]]$id,
+						x = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$x), simplify=TRUE),
+						y = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$y), simplify=TRUE)
+					)
+					sw[['predictions']] = rbind(sw[['predictions']], pdf)	
+				}
+			}
 		}
 	} else {
-		class(sw) = c(paste("wiseSW", stepType, sep="."),class(sw));
-		indices = grep("Student.Work", names(row));
-		sw[[1]] = row[1, indices[1]];
+		sw[["data"]] = NA;
+	} 				
+	return(sw)
+}
+as.wiseSW.wiseSW.CarGraph = function (sw, row, ...){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
+	# the car graph step has json data
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	if (grepl("Response #[0-9]+: ", val)){ 
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
+		### create a data frame that captures:
+		# id, x, y;
+		sw[['predictions']] = data.frame(id = character(), x = numeric(), y = numeric())
+		if (length(datal$predictionArray) > 0){
+			for (p in 1:length(datal$predictionArray)){
+				if (length(datal$predictionArray[[p]]$predictions) > 0){
+					pdf = data.frame(
+						id = datal$predictionArray[[p]]$id,
+						x = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$x), simplify=TRUE),
+						y = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$y), simplify=TRUE)
+					)
+					sw[['predictions']] = rbind(sw[['predictions']], pdf)	
+				}
+			}
+		}
+		if (length(datal$observationArray) > 0){
+			### create a data frame that captures:
+			# Action, index in array, t, x
+			sw[['observations']] = data.frame()
+			for (p in 1:length(datal$observationArray)){
+				obs = datal$observationArray[[p]]
+				if (length(obs) > 1){
+					obs = obs[2:length(obs)]
+					Action = rep(head(datal$observationArray[[p]], 1)[[1]],length(obs))
+					Index = 1:length(obs)
+					t = sapply(obs, function(l)tryCatch({return(l[[1]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
+					if (is.list(t)) t = rep(NA, length(obs))
+					x = sapply(obs, function(l)tryCatch({return(l[[2]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
+					if (is.list(x)) x = rep(-1, length(obs))
+					pdf = data.frame(
+						Action = Action,
+						Index = Index,
+						t = t,
+						x = x
+					)
+					sw[['observations']] = rbind(sw[['observations']], pdf)
+				}
+			}
+		}
+	} else {
+		sw[["data"]] = NA;
+	} 				
+	return(sw)
+}
+
+as.wiseSW.wiseSW.ExplanationBuilder = function (sw, row, ...){
+	args = list(...)
+	if (is.null(args$specialDF)){
+		specialDF = NULL
+	} else {
+		specialDF = eval(args$specialDF)
 	}
-	
-	return (sw);
+	if (is.null(args$otherDF)){
+		otherDF = NULL
+	} else {
+		otherDF = eval(args$otherDF)
+	}
+	#### There is no data in the student work, so look in special for some fields
+	### special holds the ideas that were sorted and into where
+	if (!is.null(specialDF)){
+		## find the appropriate row
+		#srows= subset(specialDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id)&as.character(Step.Title)==as.character(row$Step.Title)&as.character(Start.Time)==as.character(row$Start.Time));
+		srows= subset(specialDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id)&as.character(Step.Title)==as.character(row$Step.Title)&as.character(specialDF[,grep("Start.Time",names(specialDF))[1]])==as.character(row[,grep("Start.Time",names(row))[1]]));
+		sw[["answer"]] = srows$Answer[1];
+		idea.used = character();
+		idea.x = numeric();
+		idea.y = numeric();
+		idea.color = character();
+		for (i in 1:nrow(srows)){
+			srow = srows[i,];
+			idea.used = c(idea.used, as.character(srow$Idea.Text)[1])
+			idea.x = c(idea.x, srow$Idea.X.Position[1])
+			idea.y = c(idea.y, srow$Idea.Y.Position[1])
+			idea.color = c(idea.color, as.character(srow$Idea.Color)[1])
+		}
+		sw[['idea.used']] = idea.used;
+		sw[['idea.x']] = idea.x;
+		sw[['idea.y']] = idea.y;
+		sw[['idea.color']] = idea.color;
+	}
+	## the other df is the idea manager export, has the source of all ideas
+	if (!is.null(otherDF)){
+		idea.source = character();
+		fromPublic = vector()
+		Idea.Id = vector()
+		# get timestamp for )step
+		ts.start = timestampAsNumeric(row[,grep("Start.Time",names(row))[1]])
+		tindex = grep("time.spent",tolower(names(row)))[1]
+		ts.end = ts.start + row[1,tindex]
+		## subset from idea manager the relevant rows from the private basket
+		orows = subset(otherDF, as.character(Workgroup.Id)==as.character(row$Workgroup.Id))
+		if (nrow(orows) > 0){
+			### get basket revision number of first idea created after timestamp
+			rowsAfterTime = timestampAsNumeric(orows[,grep("Timestamp.Idea.Created",names(orows))[1]])>ts.end
+			
+			if (sum(rowsAfterTime) > 0){
+				xrow = subset(orows, rowsAfterTime)[1,];
+				### there is a row in which the time is
+				br = xrow$Basket.Revision[1]-1	
+			} else {
+				### the last revision is valid
+				br = tail(orows$Basket.Revision,1)
+			}
+			## get last basket revision
+			orows = subset(orows, Basket.Revision == br);
+			if (nrow(orows)>0){
+				for (i in 1:nrow(orows)){
+					orow = orows[i,]
+					if (as.character(orow$Trash) != "1.0"){
+						idea.source = c(idea.source, as.character(orow$Idea.Text)[1])
+						fromPublic = c(fromPublic, as.numeric(as.character(orow$Was.Copied.From.Public)[1]))
+						Idea.Id = c(Idea.Id, as.numeric(as.character(orow$Idea.Id)[1]))
+					}	
+				}
+			} 
+		}
+
+		sw[['idea.source']] = idea.source;
+		sw[['Was.Copied.From.Public']] = fromPublic;
+		sw[['Idea.Id']] = Idea.Id;
+	}
+	return (sw)
 }
 
 feedbackGiven = function (obj, ...) UseMethod ("feedbackGiven");
@@ -385,7 +479,6 @@ studentResponse.wiseSW.OpenResponse = function (obj){
 		}
 	} 
 }
-
 
 ##  Applies a Condition to wise data frame based on one of two methods (for now)
 ##  If method is "Parent.Project.Id" then

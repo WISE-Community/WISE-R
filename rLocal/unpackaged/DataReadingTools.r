@@ -13,113 +13,94 @@
 ##      C:\Program Files\Java\jre7\bin\server
 ##   For Mac OS X, you'll need to figure this out on your own.
 ##   You may want to do this before starting an R session.
-options(java.parameters = "-Xmx1024m"); #increase Java's memory, necessary for large workbooks (many tabs)
-library(rJava);
+#options(java.parameters = "-Xmx1024m"); #increase Java's memory, necessary for large workbooks (many tabs)
+#library(rJava);
 ## These library is necessary for reading and writing Excel files.  
-library(xlsx);
+#library(xlsx);
 
 #################################### MAIN OPENING TOOLS #######################################
 # These functions are primarilly used for opening and parsing data in preparation for analysis
 
-## The newWISEDF function creates a data frame that contains all data from the given directory
+## The read.xlsx.wiseDir.old function creates a data frame that contains all data from the given directory
 ## Since this is a "flat" data.frame, i.e., the different files and tabs are all stored in the
 ## same data.frame columns have been added to differentiate between runs, workgroups, etc.
 ## UPDATES:
 ### - excel file now contains a workgroup Id column, will check for this
 #\name{read.xlsx.wiseDir}
 #\description
-read.xlsx.wiseDir = function (dir, DEBUG = FALSE){
+read.xlsx.wiseDir = function (dir, DEBUG = FALSE, DEEPDEBUG = FALSE){
 	files = list.files(dir);
 	df = data.frame();
 	# Iterate the first time through all the files to find the largest number of columns
 	#  e.g. a questionarre could have multiple "student work" columns
 	maxColumns = 0;
-	sheetCounts = numeric();
+	maxStudentWorkCols = 0;
 	for (f in files){
 		## don't include any files in temporary format
 		if (substr(f,0,1) != "~"  && grepl(".xl", f)[1]){
 			dirf = paste(dir, f, sep="");
 			if (DEBUG) print(f)
-			sheetCount = countExcelSheets(dirf);
-			sheetCounts = c(sheetCounts, sheetCount);
-			for (s in 1:sheetCount){
+			colClasses = vector();
+			for (s in 1:1000){
 				if (DEBUG) print(s)
+				if (length(colClasses) == 0){
+					### if we haven't found our first sheet yet check here and then retrieve column classes
+					head = tryCatch({
+						read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=1, stringsAsFactors = FALSE);
+					}, error = function(e){
+						NULL
+					});	
+					if (is.null(head)){
+						if(DEBUG) print(colClasses)
+						### exceeded sheet count
+						break;
+					}
+					colClasses = getColClasses.read(names(head));
+				}
 				# get first row
-				head = read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=1, stringsAsFactors = FALSE);
-				if (DEBUG) print("Got header")
-				pbody = read.xlsx2(dirf, sheetIndex = s, startRow=4, endRow = 4, stringsAsFactors = FALSE);
-				if (DEBUG) print("Got body")
-				pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,]
-				if (DEBUG) print("Got body with character classes")
-				firstline = cbind(head, pbody);
-				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
-				if (names(head)[1] == "Workgroup.Id"){
-					if (ncol(firstline) > maxColumns){
-						maxColumns = ncol(firstline);
-						maxFile = f;
-						maxSheetIndex = s;
-					}
+				sheetdf = tryCatch({
+					read.xlsx2(dirf, sheetIndex = s, colClasses=colClasses, stringsAsFactors = FALSE);
+				}, error = function(e){
+					NULL
+				});	
+				if (is.null(sheetdf)){
+					if(DEBUG) print(colClasses)
+					### exceeded sheet count
+					break;
 				}
+				if (DEBUG) print("Got sheet")
+				if (DEEPDEBUG) print(sheetdf)
+				
+				## Make sure we are using a standard Student.Work.Part.1 for first column of student work
+				if (length(which(names(sheetdf) == "Student.Work")) == 1){
+					names(sheetdf)[which(names(sheetdf) == "Student.Work")] = "Student.Work.Part.1";
+				}
+				countStudentWorkCols = length(grep("Student.Work", names(sheetdf)))
+
+				if (length(df) == 0){
+					# if this is the first sheet just set df 
+					df = sheetdf
+					maxStudentWorkCols = countStudentWorkCols;
+				} else {
+					# if this is 2-N sheet, must make sure that there are enough columns 
+					if (countStudentWorkCols < maxStudentWorkCols){
+						### add columns to sheet
+						for (wi in (countStudentWorkCols+1):maxStudentWorkCols){
+							sheetdf[paste('Student.Work.Part',wi,sep='.')] = rep("",nrow(sheetdf))
+						}
+					} else if (countStudentWorkCols > maxStudentWorkCols){
+						### add columns to df
+						for (wi in (maxStudentWorkCols+1):countStudentWorkCols){
+							df[paste('Student.Work.Part',wi,sep='.')] = rep("",nrow(df))
+						}
+					}
+					### combine
+					df = rbind(df, sheetdf);
+				}			
 			}
 		}
 	}
-	## replace Student.Work with Student.Work.Part.1
-	if (length(which(names(df) == "Student.Work")) == 1){
-		names(df)[which(names(df) == "Student.Work")] = "Student.Work.Part.1";
-	}
-
-	### recreate data frame with the correct column classes
-	if (maxColumns > 0){
-		dirf = paste(dir, maxFile, sep="");
-		head = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=1, endRow=1, stringsAsFactors = FALSE);
-		colClassesHead = getColClasses.read(names(head));
-		head = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=1, endRow=1, colClasses=colClassesHead, stringsAsFactors = FALSE);
-		pbody = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=4, endRow = 4, stringsAsFactors = FALSE)
-		pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,] ## remove Workgroup.Id column from body, if it exists
-		colClassesBody = getColClasses.read(names(pbody));
-		pbody = read.xlsx2(dirf, sheetIndex = maxSheetIndex, startRow=4, endRow = 4, colClasses=colClassesBody, stringsAsFactors = FALSE)
-		pbody = subset(pbody,TRUE,which(names(pbody) != "Workgroup.Id"))[-1,] ## remove Workgroup.Id column from body, if it exists
-		df = cbind(head, pbody);
-	} else { return (df);}
-
-	## now extract data
-	findex = 0;
-	for (f in files){
-		findex = findex + 1;
-		## don't include any files in temporary format
-		if (substr(f,0,1) != "~"  && grepl(".xl", f)[1]){
-			dirf = paste(dir, f, sep="");
-			sheetCount = countExcelSheets(dirf);
-			#sheetCount = sheetCounts[findex];
-			for (s in 1:sheetCount){
-				# get header information
-				head = read.xlsx2(dirf, sheetIndex = s, startRow=1, endRow=2, colClasses=colClassesHead, stringsAsFactors = FALSE);
-				# we validate that this is a WISE data file by looking for the Workgroup.Id in the top left 
-				if (names(head)[1] == "Workgroup.Id"){
-					body = read.xlsx2(dirf, sheetIndex = s, startRow=4, colClasses=colClassesBody, stringsAsFactors = FALSE)
-					if (nrow(body) > 0 && prod(is.na(body))==0){  #is there data here?
-						body = subset(body,TRUE,which(names(body) != "Workgroup.Id")) ## remove Workgroup.Id column from body, if it exists
-						full = cbind(head[rep(seq_len(nrow(head)),each=nrow(body)),],body);
-						## if full has less cols than df, populate with dummy data
-						if (ncol(full) < ncol(df)){
-							for (c in (ncol(full)+1):ncol(df)){
-								full = cbind(full, dum=rep("",nrow(full)))
-								names(full)[c] = names(df)[c]; 
-							}
-						}
-						## replace Student.Work with Student.Work.Part.1
-						if (length(which(names(full) == "Student.Work")) == 1){
-							names(full)[which(names(full) == "Student.Work")] = "Student.Work.Part.1";
-						}
-						## look for a mismatch error between number of cols
-						if (ncol(df) != 0 && ncol(full) != ncol(df)){print(names(full)); print(names(df)); print(f); print(s); print("column length mismatch")}
-						if (length(names(df)) != length(intersect(names(df),names(full)))){print(names(full)); print(names(df)); print(f); print(s); print("name mismatch")}
-						df = rbind(df, full);
-					}
-				}
-			}
-		}
-	}
+	
 	# make sure there aren't any empty rows - i.e. those without a wise id
 	df = subset(df, !is.nan(Wise.Id.1))
 	# create an index
@@ -159,6 +140,7 @@ read.xlsx.wiseDir = function (dir, DEBUG = FALSE){
 	class(df) = c("wisedata.frame",class(df));
 	return (df);
 }
+#wise = read.xlsx.wiseDir(excelDirectory, DEBUG=TRUE);
 
 ## Given a wisedata.frame will iterate through all rows looking for multiple student responses that are concatatenated into a single column
 ## if expandToColumn is TRUE, then each response will be placed in a new Student.Work.Column, if we run out of columns the entire data frame will be expanded
@@ -289,7 +271,7 @@ readForColValues = function (targetDF, sourceFile, targetColNames=NULL, sourceCo
 #	In the case where there are more than one files for a given student this function can be used to 
 #	transfer the values in one file to the corresponding row in a target dataframe.
 #
-transferColValues = function (targetDF, sourceDF, targetColNames="Student.Work.Part.1", sourceColNames="Student.Work.Part.1"){
+transferColValues = function (targetDF, sourceDF, targetColNames="Student.Work.Part.1", sourceColNames="Student.Work"){
 	for (r in 1:nrow(sourceDF)){
 		srow = sourceDF[r,];
 		## filter down to a single row of the targetDF (hopefully)
@@ -323,8 +305,6 @@ transferColValues = function (targetDF, sourceDF, targetColNames="Student.Work.P
 	}
 	return (targetDF);
 }
-wiseDF.gcc.burnOR.in = readScoredResponses(wiseDF.gcc.burnOR, excelOutFile)
-
 
 ######################  Summary functions ############################################
 ## These functions are used to turn a complete, step-by-step data.frame into summaries
