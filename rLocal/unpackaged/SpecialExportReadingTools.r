@@ -17,10 +17,11 @@ read.xlsx.special = function (dir){
 			dirf = paste(dirdir,filesfiles[which(filesfiles=="data.js")[1]],sep="")
 		}
 		if (dirf != ""){
-			d = readLines(dirf)
+			d = readLines(dirf, warn=FALSE)
 			d = sub("var data = ","", d);
 			d = paste(d, collapse="");
 			j = fromJSON(d);
+			#return(j)
 			### go through each student
 			for (s in j[[which(names(j)=="students")]]){
 				Workgroup.Id = as.factor(s$workgroupId);				

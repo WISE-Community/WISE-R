@@ -5,6 +5,7 @@
 
 ## need this library for some step types that download data in json format.
 library(rjson);
+library(plyr)
 
 ### Converts student work into a maneagable format
 ### the special DF will be a special download of a step type.
@@ -42,27 +43,29 @@ as.wiseSW.wiseSW = function (sw, row, ...){
 	return(sw)
 }
 
-as.wiseSW.wiseSW.Questionnaire = function(sw, row){
+as.wiseSW.wiseSW.AssessmentList = function(sw, row, colNames = "Student.Work"){
 	### which indices contain Student Work?
-	indices = grep("Student.Work", names(row));
+	indices = grep(colNames, names(row));
 	# This type of step may have work on all columns of Student.Work
 	for (i in indices){
 		val = row[1, i];
-		if (val == "" || val == "N/A") val = "";
+		if (is.na(val) || val == "" || val == "N/A") val = "";
 		sw[[length(sw)+1]] = val;
 	}
 	return(sw)
 }
-as.wiseSW.wiseSW.OpenResponse = function(sw, row){
+
+as.wiseSW.wiseSW.OpenResponse = function(sw, row, colNames = "Student.Work"){
 	#### which indices contain Student Work?
-	indices = grep("Student.Work", names(row));
+	indices = grep(colNames, names(row));
 	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
 	row = expandMultipleResponses(row, TRUE)
 	responses = row[1,indices];
 	responses.notblankL = responses != "";
 	responses.notblankL[1] = TRUE; ### keep the first
 	responses = responses[responses.notblankL];
-	data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
+	data = character(); 
+	Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
 	## with c-rater feedback student responses are stuck in brackets like Student Response: []
 	for (r in responses){
 		if (regexpr("Student Response: \\[",r)[1] > -1){
@@ -136,7 +139,61 @@ as.wiseSW.wiseSW.OpenResponse = function(sw, row){
 	sw[["Auto.Feedback"]] = Auto.Feedback
 	return(sw)
 }
-as.wiseSW.wiseSW.Mysystem2 = function (sw, row){
+as.wiseSW.wiseSW.Note = function (sw, row, colNames = "Student.Work"){
+	return (as.wiseSW.wiseSW.OpenResponse(sw,row,colNames))
+}
+as.wiseSW.wiseSW.Box2dModel = function(sw, row, colNames = "Student.Work"){
+	#### which indices contain Student Work?
+	indices = grep(colNames, names(row));
+	row = expandMultipleResponses(row, TRUE)
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	responses = row[1,indices];
+	responses.notblankL = responses != "";
+	responses.notblankL[1] = TRUE; ### keep the first
+	responses = responses[responses.notblankL];
+	data = character(); 
+	history = data.frame()
+	models = data.frame()
+	for (rnum in 1:length(responses)){
+		r = responses[rnum]
+		r = gsub("\\\\n","",r)
+
+		info = tryCatch(fromJSON(r)$response, error = function(e) return (NULL)) 
+		if (!is.null(info) && is.list(info)){
+			if (!is.null(info$history) && is.list(info$history) && length(info$history) > 0){
+				historyData = info$history
+				for (l in 1:length(historyData)){
+					hrow = data.frame(historyData[[l]][sapply(historyData[[l]],length)>0])
+					history = rbind.fill(history, hrow)
+				}
+			}
+			if (!is.null(info$tableData) && is.list(info$tableData) && length(info$tableData) > 0 && length(info$tableData[[1]]) > 1){
+				tableData = info$tableData
+				### put two dummy columns to make this a data frame
+				models = data.frame(D1 = rep(NA,length(tableData[[1]])-1), D2 = rep(NA,length(tableData[[1]])-1))
+				for (col in 1:length(tableData)){
+					# first column will be column name, subsequent will be values
+					column = vector()
+					for (row in 2:length(tableData[[1]])){
+						text = tableData[[col]][[row]]$text
+						if (is.null(text)) text = ""
+						column = c(column, text)
+					} 
+
+					models$TEMP = column
+					names(models)[names(models)=="TEMP"] = tableData[[col]][[1]]$text
+				}
+				# rm dummies
+				models = models[,c(3:ncol(models))]
+			}
+		}
+	}
+	sw[["history"]] = history
+	sw[["models"]] = models
+	return(sw)
+}
+#sw = as.wiseSW(row)
+as.wiseSW.wiseSW.Mysystem2 = function (sw, row, colNames = "Student.Work"){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
 	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
@@ -145,68 +202,94 @@ as.wiseSW.wiseSW.Mysystem2 = function (sw, row){
 	responses.notblankL = responses != "";
 	responses.notblankL[1] = TRUE; ### keep the first
 	responses = responses[responses.notblankL];
-	data = character(); Check.Answer=logical(); Auto.Score.Type = character(); Auto.Score = numeric(); Auto.Feedback = character();
+	data = character(); Is.Submit = logical(); Auto.Score = numeric(); Success = logical(); Auto.Feedback = character();
+	tables = list();
+	Svg = character()
 	## with c-rater feedback student responses are stuck in brackets like Student Response: []
-	for (r in responses){
-		if (TRUE){
-			data = c(data, r);
-			## autoscoring?
-			if (regexpr("Is Submit: ",r)[1] > -1){
-				exp = regexpr("Is Submit: ",r)
-				start = exp[1] + attr(exp, "match.length")
-				exp = regexpr("Is Submit: .*?,",r)
-				stop = exp[1] + attr(exp, "match.length") - 2
-				d = substring(r, start, stop);
-				if (d == "true"){
-					Check.Answer = c(Check.Answer, TRUE);
-				} else {
-					Check.Answer = c(Check.Answer, FALSE);
+	for (rnum in 1:length(responses)){
+		r = responses[rnum]
+		# remove (escaped) newlines
+		r = gsub("\\\\n","",r)
+		### Get table of Nodes and Link
+		### Setup startNode endNode link
+		### Start with valid links, and then end with unlinked nodes
+		table = data.frame(StartNode=character(), EndNode=character(), Link=character(), stringsAsFactors=FALSE)
+		is.submit = tryCatch(as.logical(fromJSON(r)$isSubmit), error = function(e) return (FALSE)) 
+		info = tryCatch(fromJSON(r)$response, error = function(e) return (NULL)) 
+		if (!is.null(info)){
+			links = tryCatch(fromJSON(info)$MySystem.Link, error = function(e) return (list()))
+			nodes = tryCatch(fromJSON(info)$MySystem.Node, error = function(e) return (list()))
+			if (length(links) > 0){
+				for (i in 1:length(links)){
+					link = links[[i]]
+					if (!is.null(link$startNode) && !is.null(link$endNode) && !is.null(link$text)){
+						table = rbind(table, data.frame(StartNode=link$startNode, EndNode=link$endNode, Link=link$text, stringsAsFactors=FALSE))
+					}
 				}
 			}
-			## Yes we are checking answer for auto-score
-			if (tail(Check.Answer,1)){
-				### c-rater?
-				if (regexpr("Success: ",r)[1] > -1){
-					exp = regexpr("Success: ",r)
-						start = exp[1] + attr(exp, "match.length")
-						#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
-						exp = regexpr("Success: .*?,",r)
-						stop = exp[1] + attr(exp, "match.length") - 2
-						d = substring(r, start, stop);
-						score = 0
-						if (d == "true") score = 1
-						Auto.Score = c(Auto.Score, score)
-				} else {
-					Auto.Score = c(Auto.Score, NA)
+			if (length(nodes) > 0){
+				for (i in 1:length(nodes)){
+					node = nodes[[i]]
+					node.id = node$guid
+					node.text = node$title
+					found = FALSE
+					### has this id been used in table, if not add it (as text)
+					if (nrow(table) > 0){
+						for (j in 1:nrow(table)){
+							if (table$StartNode[j] == node.id){
+								table$StartNode[j] = node.text
+								found = TRUE
+							}
+							if (table$EndNode[j] == node.id){
+								table$EndNode[j] = node.text
+								found = TRUE
+							}
+						}
+					}
+					if (!found){
+						table = rbind(table, data.frame(StartNode=node.text, EndNode="", Link="", stringsAsFactors=FALSE))
+					}
 				}
-				if (regexpr("Feedback: ",r)[1] > -1){
-					exp = regexpr("Feedback: ",r)
-					start = exp[1] + attr(exp, "match.length")
-					exp = regexpr("Feedback: .*",r)
-					stop = exp[1] + attr(exp, "match.length") - 2
-					d = substring(r, start, stop);
-					Auto.Feedback = c(Auto.Feedback, d)
-				} else {
-					Auto.Feedback = c(Auto.Feedback, "")
-				}
-			} else {
-				Auto.Score = c(Auto.Score, NA)
-				Auto.Feedback = c(Auto.Feedback, "")
+				### refactor
+				table$Link = as.factor(table$Link)
+				table$StartNode = as.factor(table$StartNode)
+				table$EndNode = as.factor(table$EndNode)
+				#levels(table$StartNode) = union(levels(table$StartNode), levels(table$EndNode))
+				#levels(table$EndNode) = levels(table$StartNode)
 			}
+			lastscore = tryCatch(as.numeric(fromJSON(info)$MySystem.RubricScore$LAST_SCORE_ID$score), error = function(e) return (NA)) 
+			if (length(lastscore) == 0) lastscore = NA
+			success = tryCatch(as.logical(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$success), error = function(e) return (FALSE)) 
+			if (length(success) == 0) success = FALSE
+			feedback = tryCatch(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$feedback, error = function(e) return ("")) 
+			if (length(feedback) == 0) feedback = ""
+			lastsvg = tryCatch(fromJSON(info)$MySystem.GraphicPreview$LAST_GRAPHIC_PREVIEW$svg, error = function(e) return ("")) 
+			if (length(lastsvg) == 0) lastsvg = ""
 		} else {
-			data = c(data, r);
-			Check.Answer = c(Check.Answer, FALSE);
-			Auto.Score = c(Auto.Score, NA)
-			Auto.Feedback = c(Auto.Feedback, "")
-		}
+			lastscore = NA
+			success = FALSE
+			feedback = ""
+			lastsvg = ""
+		}		
+		Is.Submit[rnum] = is.submit
+		data[rnum] = r
+		tables[[rnum]] = table
+		Svg[rnum] = lastsvg
+		Success[rnum] = success
+		Auto.Score[rnum] = lastscore
+		Auto.Feedback[rnum] = feedback
 	}
 	sw[["data"]] = data;
-	sw[["Check.Answer"]] = Check.Answer
+	sw[["tables"]] = tables
+	sw[["Is.Submit"]] = Is.Submit
+	sw[["Success"]] = Success
 	sw[["Auto.Score"]] = Auto.Score
 	sw[["Auto.Feedback"]] = Auto.Feedback
+	sw[["Svg"]] = Svg
 	return (sw)
 }
-as.wiseSW.wiseSW.Sensor = function (sw, row){
+
+as.wiseSW.wiseSW.Sensor = function (sw, row, ...){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
 	### Assumes that data comes from the spcial parser, there may be multiple student responses, the data will contain
@@ -214,23 +297,37 @@ as.wiseSW.wiseSW.Sensor = function (sw, row){
 	val = row[1,indices[1]]; 
 	lval = strsplit(val, "Response #[0-9]+: ")[[1]]
 
-	responses = list();
+	responses = character();
+	xMin = numeric()
+	xMax = numeric()
+	yMin = numeric()
+	yMax = numeric()
 	data = list();
 	if (length(lval) > 1){
 		lval = lval[2:length(lval)];
 		for (i in 1:length(lval)){
 			ldata = fromJSON(lval[i]);
 			predictions = convertListOfListToListOfVectors(ldata$predictionArray)
-			predictionsdf = data.frame(x=predictions$x, y=predictions$y)
+			predictionsdf = data.frame(id=rep("prediction",length(predictions$x)),x=predictions$x, y=predictions$y)
 			data[[i]] = predictionsdf
-			response = ldata$response
-			responses[[i]] = response
+			responses[i] = ldata$response
+			xMin[i] = as.numeric(ldata$xMin)
+			xMax[i] = as.numeric(ldata$xMax)
+			yMin[i] = as.numeric(ldata$yMin)
+			yMax[i] = as.numeric(ldata$yMax)
 		}
 	}
 	sw[['predictions']] = data;
 	sw[['response']] = responses;
+	sw[['xMin']] = xMin
+	sw[['xMax']] = xMax
+	sw[['yMin']] = yMin
+	sw[['yMax']] = yMax
+
 	return(sw)
 }
+
+### update xMin and all that
 as.wiseSW.wiseSW.Grapher = function (sw, row, ...){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
@@ -288,30 +385,114 @@ as.wiseSW.wiseSW.CarGraph = function (sw, row, ...){
 			sw[['observations']] = data.frame()
 			for (p in 1:length(datal$observationArray)){
 				obs = datal$observationArray[[p]]
-				if (length(obs) > 1){
-					obs = obs[2:length(obs)]
-					Action = rep(head(datal$observationArray[[p]], 1)[[1]],length(obs))
-					Index = 1:length(obs)
-					t = sapply(obs, function(l)tryCatch({return(l[[1]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
-					if (is.list(t)) t = rep(NA, length(obs))
-					x = sapply(obs, function(l)tryCatch({return(l[[2]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
-					if (is.list(x)) x = rep(-1, length(obs))
-					pdf = data.frame(
-						Action = Action,
-						Index = Index,
-						t = t,
-						x = x
-					)
+				if (length(obs) > 0){
+					# check if head is label
+					if (length(head(obs,1)[[1]]) == 1 && is.character(head(obs,1)[[1]])){
+						h = head(obs,1)[[1]]
+						if (length(obs) > 1){
+							obs = obs[2:length(obs)]
+						} else {
+							obs = c()
+						}
+					} else {
+						h = ""
+					}
+					if (length(obs) > 0){		
+						Action = rep(h,length(obs))
+						Index = 1:length(obs)
+						t = sapply(obs, function(l)tryCatch({return(l[[1]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
+						if (is.list(t)) t = rep(NA, length(obs))
+						x = sapply(obs, function(l)tryCatch({return(l[[2]])},error=function(e){print(datal$observationArray[[p]])}), simplify=TRUE)
+						if (is.list(x)) x = rep(NA, length(obs))
+						pdf = data.frame(
+							Action = Action,
+							Index = Index,
+							t = t,
+							x = x
+						)
+					} else {
+						pdf = data.frame(Action=h,Index=1,t=NA, x=NA)
+					}
 					sw[['observations']] = rbind(sw[['observations']], pdf)
 				}
 			}
 		}
 	} else {
-		sw[["data"]] = NA;
+		sw[["predictions"]] = NA;
 	} 				
 	return(sw)
 }
 
+as.wiseSW.wiseSW.Table = function (sw, row, ...){
+	args = list(...)
+	if (is.null(args$nrow.titles)){
+		nrow.titles = 0
+	} else {
+		nrow.titles = eval(args$nrow.titles)
+	}
+	if (is.null(args$ncol.titles)){
+		ncol.titles = 1
+	} else {
+		ncol.titles = eval(args$ncol.titles)
+	}
+	indices = grep("Student.Work", names(row));
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	tableData = data.frame()
+	tableDimData = data.frame()
+	if (!is.na(val)){
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
+		if (!is.null(datal$tableData) && length(datal$tableData) > nrow.titles && length(datal$tableData[[1]]) > ncol.titles){
+			ncols = length(datal$tableData)
+			nrows = length(datal$tableData[[1]])
+			
+			rtitles = character()
+			if (nrow.titles > 0){
+				for (r in (ncol.titles+1):nrows){
+					rtitle = "";
+					for (c in 1:nrow.titles){
+						rtitle = paste(rtitle, as.character(datal$tableData[[c]][[r]]$text), collapse=".");
+					}
+					rtitles = c(rtitles, gsub("^\\s+|\\s+$", "", rtitle));
+				}
+			}
+
+			#iterate through each column
+			for (c in (nrow.titles+1):ncols){
+				ctitle = ""
+				if (ncol.titles > 0){
+					for (r in 1:ncol.titles){
+						ctitle = paste(ctitle, as.character(datal$tableData[[c]][[r]]$text), collapse=".");
+					}
+				} else {
+					ctitle = paste("Col",c,sep=".")
+				}
+				column = character()
+				dimcolumn = character()
+				for (r in (ncol.titles+1):nrows){
+					column = c(column, as.character(datal$tableData[[c]][[r]]$text));
+					dimcolumn = c(dimcolumn, ifelse(!is.null(datal$tableData[[c]][[r]]$cellSize),datal$tableData[[c]][[r]]$cellSize, 15))
+				}
+				if (length(tableData) == 0){
+					tableData = data.frame(TEMP = column)
+					tableDimData = data.frame(TEMP = dimcolumn)
+				} else {
+					tableData$TEMP = column;
+					tableDimData$TEMP = dimcolumn;					
+				}
+				names(tableData)[which(names(tableData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
+				names(tableDimData)[which(names(tableDimData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
+			}
+			if (nrow.titles > 0){
+				row.names(tableData) = rtitles 
+				row.names(tableDimData) = rtitles
+			} 
+		}
+	}
+	sw$table = tableData
+	sw$tableDims = tableDimData
+	return(sw)
+}
 as.wiseSW.wiseSW.ExplanationBuilder = function (sw, row, ...){
 	args = list(...)
 	if (is.null(args$specialDF)){
@@ -393,18 +574,13 @@ as.wiseSW.wiseSW.ExplanationBuilder = function (sw, row, ...){
 
 feedbackGiven = function (obj, ...) UseMethod ("feedbackGiven");
 feedbackGiven.default = function (obj, ...){return("N/A");}
-feedbackGiven.wisedata.frame = function (obj, subset=TRUE, select, drop = FALSE, is.data.frame.out = TRUE, feedbackGiven.colName = "Research.FeedbackGiven", ...){
+feedbackGiven.wisedata.frame = function (obj,as.data.frame.out = TRUE, feedbackGiven.colName = "Research.FeedbackGiven", ...){
 	index = which("Index" == names(obj));
 	if (index < 0){
 		obj = cbind(Index = 1:nrow(obj), obj);
 	}
-	if (!missing(select)){
-		if (!missing(subset)){obj.sub = subset(obj, subset=subset, select=select, drop=drop);}
-		else {obj.sub = subset(obj, subset=TRUE, select=select, drop=drop);}
-	}else{
-		if (!missing(subset)){obj.sub = subset(obj, subset=subset, drop=drop);}
-		else {obj.sub = subset(obj, subset=TRUE, drop=drop);}
-	}
+	obj.sub = obj
+	
 	# iterate threw rows of subset feedbackGiven each value and put in 
 	feedbackGivens = character();
 	for (r in 1:nrow(obj.sub)){
@@ -413,7 +589,7 @@ feedbackGiven.wisedata.frame = function (obj, subset=TRUE, select, drop = FALSE,
 		feedbackGivens = c(feedbackGivens, s);
 	}
 	#print(feedbackGivens)
-	if (is.data.frame.out){
+	if (as.data.frame.out){
 		sindex = which(feedbackGiven.colName == names(obj));
 		## update levels
 		levels(obj[,sindex]) = c(levels(obj[,sindex]), unique(feedbackGivens))
@@ -428,36 +604,33 @@ feedbackGiven.wiseSW.OpenResponse = function (obj){
 	if (length(obj) == 0) return ("N/A");
 	if (TRUE){
 		if (!is.null(obj$Auto.Feedback)){
-			return (obj$Auto.Feedback);
+			return (tail(obj$Auto.Feedback,1))
 		} else {
 			return ("N/A");
 		}
 	} 
 }
-
+feedbackGiven.wiseSW.Note = function (obj){
+	return(feedbackGiven.wiseSW.OpenResponse(obj))
+}
 studentResponse = function (obj, ...) UseMethod ("studentResponse");
 studentResponse.default = function (obj, ...){return("N/A");}
-studentResponse.wisedata.frame = function (obj, subset=TRUE, select, drop = FALSE, is.data.frame.out = TRUE, studentResponse.colName = "Student.Response", ...){
+studentResponse.wisedata.frame = function (obj, as.data.frame.out = TRUE, studentResponse.colName = "Student.Response", ...){
 	index = which("Index" == names(obj));
 	if (index < 0){
 		obj = cbind(Index = 1:nrow(obj), obj);
 	}
-	if (!missing(select)){
-		if (!missing(subset)){obj.sub = subset(obj, subset=subset, select=select, drop=drop);}
-		else {obj.sub = subset(obj, subset=TRUE, select=select, drop=drop);}
-	}else{
-		if (!missing(subset)){obj.sub = subset(obj, subset=subset, drop=drop);}
-		else {obj.sub = subset(obj, subset=TRUE, drop=drop);}
-	}
-	# iterate threw rows of subset studentResponse each value and put in 
+	obj.sub = obj
+	
+	# iterate through rows of subset studentResponse each value and put in 
 	studentResponses = character();
 	for (r in 1:nrow(obj.sub)){
 		sw = as.wiseSW(obj.sub[r,]);
-		s = studentResponse(obj=sw);
+		s = studentResponse(obj=sw, ...);
 		studentResponses = c(studentResponses, s);
 	}
 	#print(studentResponses)
-	if (is.data.frame.out){
+	if (as.data.frame.out){
 		sindex = which(studentResponse.colName == names(obj));
 		## update levels
 		levels(obj[,sindex]) = c(levels(obj[,sindex]), unique(studentResponses))
@@ -465,166 +638,44 @@ studentResponse.wisedata.frame = function (obj, subset=TRUE, select, drop = FALS
 		return (obj);
 	} else {
 		return (studentResponses);
-	}
-	
+	}	
 }
-studentResponse.wiseSW.OpenResponse = function (obj){
+studentResponse.wiseSW.OpenResponse = function (obj, ...){
 	if (length(obj) == 0) return ("N/A");
 	if (TRUE){
 		if (!is.null(obj$data)){
 			#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
-			return (obj$data[1]);
+			return (tail(obj$data,1));
 		} else {
 			return ("N/A");
 		}
 	} 
 }
-
-##  Applies a Condition to wise data frame based on one of two methods (for now)
-##  If method is "Parent.Project.Id" then
-###    Parent.Project.Id should include more than id number,  If a Wise.User.Id can
-###    be found in any rows of a given Parent.Project.Id, will receive a condition associated
-###    with the index of that ID in the Parent.Project.Id vector
-## If method is "Workgroup.Id.mod" then
-###    Condition is assigned by each Wise.User's mod of his or her Workgroup Id in the Parent Project
-### Note if multiple Wise User Ids are in projects that are not the main projects (pointed to be Parent.Project.Id, e.g. pre post test), will look for first only and print an error
-applyCondition = function (df, method="Parent.Project.Id", Parent.Project.Ids, Workgroup.Id.mod=1, is.data.frame.out=TRUE, VERBOSE=TRUE){
-	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
-	df.pp = subset(df, Parent.Project.Id %in% Parent.Project.Ids);
-	Condition = numeric();
-	error1 = "";
-	error2 = "";
-	if (method=="Parent.Project.Id"){
-		for (i in 1:nrow(df)){
-			row = df[i,];
-			if (length(which(Parent.Project.Ids == row$Parent.Project.Id[1])) > 0){
-				### this row is part of one of the target parent projects
-				Condition = c(Condition, which(Parent.Project.Ids == row$Parent.Project.Id[1])[1])
-			} else{
-				### this row is not part of one of the target parent projects
-				### find a row in the parent project that has same Wise.User.Id
-				id1 = row$Wise.Id.1[1];
-				idf = subset(df.pp, Wise.Id.1%in%id1|Wise.Id.2%in%id1|Wise.Id.3%in%id1)
-				if (nrow(idf) == 0){
-					Condition = c(Condition, 0);
-					error = paste("Wise User", id1, "did not complete an experimental project.")
-					if(VERBOSE && error!=error1 && error!=error2) print(error)
-					error2 = error1
-					error1 = error;
-				} else if (length(unique(idf$Parent.Project.Id)) > 1){
-					# bad, id is in more than one exp project
-					Condition = c(Condition, 0);
-					error = paste("Wise User", id1, "is associated with more than one experimental project.")
-					if(VERBOSE && error!=error1 && error!=error2) print(error)
-					error2 = error1
-					error1 = error;
-				} else {
-					if (!is.nan(row$Wise.Id.2[1]) || !is.nan(row$Wise.Id.3[1])){
-						if(VERBOSE) print(paste("Wise users from workgroup",row$Workgroup.Id,"in non-experimental project has more than one member."))
-						## okay so the teacher did a non-experimental project in groups (bad), but were they all at least in the same condition?
-						id23 = ifelse(!is.nan(row$Wise.Id.2[1]) , row$Wise.Id.2[1] , numeric())
-						id23 = ifelse(!is.nan(row$Wise.Id.3[1]) , c(id23, row$Wise.Id.3[1]) , id23)
-						id23 = id23[!is.na(id23)]
-						idf23 = subset(df.pp, Wise.Id.1%in%id23|Wise.Id.2%in%id23|Wise.Id.3%in%id23)
-						if (nrow(idf23) == 0){
-							Condition = c(Condition, which(Parent.Project.Ids == idf$Parent.Project.Id[1])[1])
-							error = paste("Wise User", id23, "did not complete an experimental project.")
-							if(VERBOSE && error!=error1 && error!=error2) print(error)
-							error2 = error1
-							error1 = error;
-						} else if (length(unique(idf23$Parent.Project.Id)) > 1){
-							# bad, id is in more than one exp project
-							Condition = c(Condition, 0);
-							error = paste("Wise Users from Workgroup", row$Workgroup.Id, "are associated with more than one experimental project.")
-							if(VERBOSE && error!=error1 && error!=error2) print(error)
-							error2 = error1
-							error1 = error;
-						} else {
-							## folks were all in the same condition
-							Condition = c(Condition, which(Parent.Project.Ids == idf23$Parent.Project.Id[1])[1])
-						}
-						
-					} else {
-						## Ideal, one user in non-experiment, associated with one experimental project
-						Condition = c(Condition, which(Parent.Project.Ids == idf$Parent.Project.Id[1])[1])
-					}
-				}
-			}
+studentResponse.wiseSW.Note = function (obj, ...){
+	return (studentResponse.wiseSW.OpenResponse(obj, ...))
+}
+studentResponse.wiseSW.MultipleChoice = function (obj, ...){
+	if (length(obj) == 0) return ("N/A");
+	if (TRUE){
+		if (!is.null(obj[[1]])){
+			#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
+			return (tail(obj[[1]],1));
+		} else {
+			return ("N/A");
 		}
-	} else if (method=="Workgroup.Id.mod"){
-		#### Generate conditions based on the mod value of Workgroup.Id within the given parent project
-		for (i in 1:nrow(df)){
-			row = df[i,];
-			if (length(which(Parent.Project.Ids == row$Parent.Project.Id[1])) > 0){
-				### this row is part of one of the target parent projects, find the mod of workgroup id
-				Condition = c(Condition, as.numeric(as.character(row$Workgroup.Id))%%Workgroup.Id.mod+1);
-			} else{
-				### this row is not part of one of the target parent projects
-				### find a row in the parent project that has same Wise.User.Id
-				id1 = row$Wise.Id.1[1];
-				idf = subset(df.pp, Wise.Id.1%in%id1|Wise.Id.2%in%id1|Wise.Id.3%in%id1)
-				if (nrow(idf) == 0){
-					Condition = c(Condition, 0);
-					error = paste("Wise User", id1, "did not complete an experimental project.")
-					if(VERBOSE && error!=error1 && error!=error2) print(error)
-					error2 = error1
-					error1 = error;
-				} else if (length(unique(idf$Parent.Project.Id)) > 1){
-					# bad, id is in more than one exp project
-					Condition = c(Condition, 0);
-					error = paste("Wise User", id1, "is associated with more than one experimental project.")
-					if(VERBOSE && error!=error1 && error!=error2) print(error)
-					error2 = error1
-					error1 = error;
-				} else {
-					if (!is.nan(row$Wise.Id.2[1]) || !is.nan(row$Wise.Id.3[1])){
-						#if(VERBOSE) print(paste("Wise users from workgroup",row$Workgroup.Id,"in non-experimental project has more than one member."))
-						## okay so the teacher did a non-experimental project in groups (bad), but were they all at least in the same condition?
-						id23 = ifelse(!is.nan(row$Wise.Id.2[1]) , row$Wise.Id.2[1] , numeric())
-						id23 = ifelse(!is.nan(row$Wise.Id.3[1]) , c(id23, row$Wise.Id.3[1]) , id23)
-						id23 = id23[!is.na(id23)]
-						idf23 = subset(df.pp, Wise.Id.1%in%id23|Wise.Id.2%in%id23|Wise.Id.3%in%id23)
-						if (nrow(idf23) == 0){
-							Condition = c(Condition, as.numeric(as.character(idf$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
-							error = paste("Wise User", id23, "did not complete an experimental project.")
-							if(VERBOSE && error!=error1 && error!=error2) print(error)
-							error2 = error1
-							error1 = error;
-						} else if (length(unique(idf23$Parent.Project.Id)) > 1){
-							# bad, id is in more than one exp project
-							Condition = c(Condition, 0);
-							error = paste("Wise Users from Workgroup", row$Workgroup.Id, "are associated with more than one experimental project.")
-							if(VERBOSE && error!=error1 && error!=error2) print(error)
-							error2 = error1
-							error1 = error;
-						} else {
-							## folks were all in the same condition
-							Condition = c(Condition, as.numeric(as.character(idf23$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
-							error = paste("Wise users from workgroup",row$Workgroup.Id,"in run",row$Run.Id, "has more than one member, but they all were same condition.")
-							if(VERBOSE && error!=error1 && error!=error2) print(error)
-							error2 = error1
-							error1 = error;
-						}
-						
-					} else {
-						## Ideal, one user in non-experiment, associated with one experimental project
-						Condition = c(Condition, as.numeric(as.character(idf$Workgroup.Id))[1]%%Workgroup.Id.mod+1)
-					}
-				}
-			}
-		}
+	} 
+}
+studentResponse.wiseSW.AssessmentList = function (obj, ...){
+	args = list(...)
+	if (is.null(args$Student.Work.Part)){
+		Student.Work.Part = 1
 	} else {
-		print(paste("The method"), method, "does not exist.")
+		Student.Work.Part = eval(args$Student.Work.Part)
 	}
-	Condition = as.factor(Condition);
-	if (is.data.frame.out){
-		oclass = class(df)
-		df = cbind(df, Condition=Condition)
-		class(df) = oclass
-		return (df)
-	} else {
-		return (Condition);
-	}
+	if (length(obj) < Student.Work.Part) return ("N/A");
+	if (TRUE){
+		return (obj[[Student.Work.Part]])
+	} 
 }
 
 ### for each Wise Id in the target look for condition in source. 

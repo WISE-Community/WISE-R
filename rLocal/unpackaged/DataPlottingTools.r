@@ -33,16 +33,18 @@ plot.wisedata.frame = function(df,plotTypes, ...){
 				s = c(s, ((rep-1)*length(plotTypes)*ncols)+rmod+1+(c-1)*length(plotTypes))
 			}
 		}
-		#print(s)
-		#print(matrix(s, nrows, ncols, byrow=TRUE))
 		layout(matrix(s, nrows, ncols, byrow=TRUE))
 	}
-
+	value = list()
+	
 	for (r in 1:nrow(df)){
-		sw = as.wiseSW(df[r,], ...)
-		plot.wiseSW(sw, plotTypes, Step.Num = df[r,]$Step.Num, Rev.Num = df[r,]$Rev.Num, Workgroup.Id = df[r,]$Workgroup.Id, ...)
+		sw = as.wiseSW(df[r,])
+		value[[length(value)+1]] = plot.wiseSW(sw, plotTypes, Step.Num = df[r,]$Step.Num, Rev.Num = df[r,]$Rev.Num, Workgroup.Id = df[r,]$Workgroup.Id, ...)
 	}
+	if (length(value)==1) value = value[[1]]
+	return (value)
 }
+
 plot.wiseSW = function(sw, plotTypes, ...) UseMethod ("plot")
 plot.wiseSW.default = function(sw, ...){return("No plot function for this type of step.")}
 plot.wiseSW.CarGraph = function (sw, plotTypes, ...){
@@ -73,6 +75,11 @@ plot.wiseSW.CarGraph = function (sw, plotTypes, ...){
 	} else {
 		Rev.Num = eval(args$Rev.Num)
 	}
+	if (is.null(args$plot.title)){
+		plot.title = paste("Revision",(Rev.Num-1))
+	} else {
+		plot.title = eval(args$plot.title)
+	}
 
 	### first time count to create appropriate # of rows
 	count = 0
@@ -88,20 +95,21 @@ plot.wiseSW.CarGraph = function (sw, plotTypes, ...){
 		for (type in plotTypes){
 			if (type == "timedObservations"){
 				if (!is.null(plot.dir)){
-					plot.timedObservations(sw$observations, xlim, plot.file = paste(plot.dir,Step.Num,"-","-",Workgroup.Id,"-",Rev.Num,"-timedObservations.png",sep=""), ...)
+					value = plot.timedObservations(sw$observations, xlim, plot.file = paste(plot.dir,Step.Num,"-","-",Workgroup.Id,"-",Rev.Num,"-timedObservations.png",sep=""), ...)
 				} else {
-					plot.timedObservations(sw$observations, xlim, ...)
+					value = plot.timedObservations(sw$observations, xlim, ...)
 				}
 				
 			} else if (type == "predictions"){
 				if (!is.null(plot.dir)){
-					plot.predictions(sw$predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=paste("Revision",(Rev.Num-1)), ...)
+					value = plot.predictions(sw$predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=plot.title, ...)
 				} else {
-					plot.predictions(sw$predictions, xlim, plot.title=paste("Revision",(Rev.Num-1)), ...)
+					value = plot.predictions(sw$predictions, xlim, plot.title=plot.title, ...)
 				}				
 			}
 		}	
 	}	
+	return (value)
 }
 plot.wiseSW.Grapher = function (sw, plotTypes, ...){
 	#args = as.list(substitute(list(...)))[-1L]
@@ -157,6 +165,129 @@ plot.wiseSW.Grapher = function (sw, plotTypes, ...){
 		}	
 	}	
 }
+plot.wiseSW.Sensor = function (sw, plotTypes, ...){
+	#args = as.list(substitute(list(...)))[-1L]
+	args = list(...)
+	predictions = as.data.frame(tail(sw$predictions, 1))
+	if (is.null(args$xlim)){
+		if (nrow(predictions) > 0) { xlim=c(0, max(predictions$x)) }
+		else {xlim = c(0,1)}
+	} else {
+		xlim = eval(args$xlim)
+	}
+	if (is.null(args$plot.dir)){
+		plot.dir = NULL
+	} else {
+		plot.dir = eval(args$plot.dir)
+	}
+	if (is.null(args$Workgroup.Id)){
+		Workgroup.Id = ""
+	} else {
+		Workgroup.Id = eval(args$Workgroup.Id)
+	}
+	if (is.null(args$Step.Num)){
+		Step.Num = NULL
+	} else {
+		Step.Num = eval(args$Step.Num)
+	}
+	if (is.null(args$Rev.Num)){
+		Rev.Num = NULL
+	} else {
+		Rev.Num = eval(args$Rev.Num)
+	}
+	if (is.null(args$plot.title)){
+		plot.title = NULL
+	} else {
+		plot.title = eval(args$plot.title)
+	}
+
+	### first time count to create appropriate # of rows
+	count = 0
+	for (type in plotTypes){
+		if (type == "predictions"){
+			count = count + 1
+		}
+	}
+
+	if (count > 0){
+		for (type in plotTypes){
+			if (type == "predictions"){
+				if (nrow(predictions) == 0){
+					plot(0, 0, xmain=plot.title, ...)
+				} else if (!is.null(plot.dir)){
+					plot.predictions(predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=plot.title, ...)
+				} else {
+					plot.predictions(predictions, xlim, plot.title=plot.title, ...)
+				}				
+			}
+		}	
+	}	
+}
+#plot(sdf[1,],plotTypes="predictions", xlim=c(0,120), ylim=c(0,2200))
+# library(utils)
+plot.wiseSW.Mysystem2 = function (sw, plotTypes, ...){
+	if (plotTypes[1] == "svg"){
+		svgString ='';
+		svgOpenTagPattern = '<svg [^>]+>';
+		imagePattern = '(<image .*?>)(<\\/image>)?';
+		dimensionPattern = '(<image x="\\d+" y="\\d+") (width="10" height="10)'
+		goodSVGTag  = '<svg style="position:relative; left:0; top:0; width:100%; height:100%;" preserveAspectRatio="xMinYMin meet" viewBox="0 40 800 600" width="300" height="150" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">';
+
+		if(!is.null(sw$Svg[1])) {
+		  	#get the MySystem.GraphicPreview field
+			svgString = sw$Svg[1];
+
+			#unescape the svg string
+			svgString = URLdecode(svgString);
+
+			#decompress the svg string
+			#svgString = lz77.decompress(svgString);
+
+			svgString = gsub(svgOpenTagPattern,goodSVGTag, svgString);
+
+			#replace all instances of imagexlink with image xlink
+			svgString = gsub('imagexlink', 'image xlink', svgString);
+
+			#fix incorrect image widths and heights...
+
+			svgString = gsub(dimensionPattern,"$1 width='100' height='110'", svgString);
+
+			#find the first match
+			match = grep(imagePattern, svgString, value=TRUE);
+
+			#loop until we have found all the image tags
+			while(length(match) != 0) {
+			    #get the whole match
+			    wholeMatch = match[0];
+
+			    #get the image opening tag
+			    match1 = match[1];
+
+			    #get the image closing tag if it exists
+			    match2 = match[2];
+
+			    if(match2 == null) {
+			        #the image closing tag does not exist so we will insert it
+			        svgString = gsub(wholeMatch, wholeMatch + "</image>", svgString);
+			    }
+
+			    #find the next match
+			    match = imagePattern.exec(svgString)
+			}
+
+			if(svgString == '') {
+			  #this student didn't do any work
+			  studentDataHtml = 'No Student Work';
+			} else {
+			  #the svg string is the student work
+			  studentDataHtml = svgString;
+			}
+			#$('#stepwork'+stepWorkId).html(studentDataHtml);
+			#$('#score'+stepWorkId).html(score);
+			#$('#categories'+stepWorkId).html(categories);
+		}
+	}
+}
 ############# GENERAL GRAPH TYPES
 plot.predictions = function (predictions, ...){
 	#args = as.list(substitute(list(...)))[-1L]
@@ -210,18 +341,17 @@ plot.predictions = function (predictions, ...){
 	}
 	plot(-100, -100, xlab="Time", ylab="Position", xlim=xlim, ylim=ylim, main=main)
 	for (i in 1:length(unique(predictions$id))){
-		id = unique(predictions$id)[i]
-		pred = subset(predictions, id == id)
-		if (nrow(pred) > 0){
-			lines(pred$x, pred$y,col=cols[i],lwd=lwd,type='l')
+		sid = as.character(unique(predictions$id)[i])
+		pred = subset(predictions, id == sid)
+		if (!is.null(pred) && nrow(pred) > 0){
+			lines(pred$x, pred$y,col=cols[i],lwd=lwd,type='b')
 		}
 		if (!is.null(expected)){
-			expec = subset(expected, id == id)
-			if (nrow(expec) > 0){
-				lines(expec$x, expec$y,col=cols[i],lwd=lwd/2, lty=3,type='l')
+			expec = subset(expected, id == sid)
+			if (!is.null(pred) && nrow(expec) > 0){
+				lines(expec$x, expec$y,col=cols[i],lwd=lwd, lty=3,type='l')
 			}
 		}
-
 	}
 	if (!is.null(plot.file)){
 	 dev.off()
@@ -229,45 +359,55 @@ plot.predictions = function (predictions, ...){
 	}
 }
 
+# t.range range of t values, t(0, T)
+# return dimensions of plot
 plot.timedObservations = function (observations, ...){
 	if (length(observations$x) == 0) return(NULL);
 
 	#args = as.list(substitute(list(...)))[-1L]
 	args = list(...)
-	if (is.null(args$xlim)){
-		xlim=c(0, max(observations$x))
-	} else {
-		xlim = eval(args$xlim)
-	}
-	if (is.null(args$plot.width)){
-		plot.width = 480
-	} else {
-		plot.width = eval(args$plot.width)
-	}
-	if (is.null(args$plot.height)){
-		plot.height = max(observations$t/1000)*20
-	} else {
-		plot.height = eval(args$plot.height)
-	} 
+	if (is.null(args$xlim)){ xlim=c(0, max(observations$x))
+	} else { xlim = eval(args$xlim) }
+
+	if (is.null(args$t.range)){ t.range = c(0, max(observations$t))
+	} else { t.range = eval (args$t.range)}
+	# update observations for t.range
+	observations = subset(observations, t >= t.range[1] & t <= t.range[2])
+
+	if (is.null(args$plot.width)){plot.width = 480
+	} else {plot.width = eval(args$plot.width)}
+
+	if (is.null(args$plot.height)){ plot.height = (t.range[2]/1000-t.range[1]/1000) * 20
+	} else { plot.height = eval(args$plot.height) } 
+	
+	if (is.null(args$lwd)){ lwd = 2
+	} else { lwd = eval(args$lwd)}
+
+	if (is.null(args$xlab)){ xlab = "Graph Time"
+	} else { xlab = eval(args$xlab)}
+
+	if (is.null(args$ylab)){ ylab = "Ellapsed Time (Seconds)"
+	} else { ylab = eval(args$ylab)}
+
 	if (is.null(args$plot.file)){
 		plot.file = NULL
 	} else {
 		plot.file = eval(args$plot.file)
-		op = par(mar=c(0,0,0,0))
-		png(plot.file, plot.width, plot.height)
-	}
-	if (is.null(args$lwd)){
-		lwd = 2
-	} else {
-		lwd = eval(args$lwd)
-	}
+		op = par(mar=c(2,2,0.1,0.1))
+		if (is.null(args$pointsize)){ pointsize = 12
+		} else { pointsize = eval(args$pointsize)}
 
-	plot(-100, -100, xlab="Graph Time", ylab="Ellapsed Time (Seconds)", xlim=xlim, ylim=c(max(observations$t/1000),0))
+		png(plot.file, plot.width, plot.height, pointsize = pointsize)
+	}
+	
+
+	plot(-100, -100, xlab=xlab, ylab=ylab, xlim=xlim, ylim=c(t.range[2]/1000,t.range[1]/1000))
 	### iterate through observations to look for a change in type
 	prevIndex = 0
 	t = numeric()
 	x = numeric()
-	Action = observations$Action[1]
+	if (is.na(observations$Action[1]) || is.null(observations$Action[1])) { Action = ""}
+	else {Action = observations$Action[1]}
 	for (o in 1:nrow(observations)){
 		obs = observations[o,]
 		Index = obs$Index
@@ -277,7 +417,7 @@ plot.timedObservations = function (observations, ...){
 			} else if (Action == "Play" || Action == "Start"){
 				t = c(t, obs$t/1000)
 				x = c(x, obs$x)
-				lines(x,t,col="#44ff44",lwd=lwd)
+				lines(x,t,col="#44ff44",lwd=lwd, lty="dashed")
 			} 
 			t = numeric()
 			x = numeric()
@@ -285,14 +425,17 @@ plot.timedObservations = function (observations, ...){
 		t = c(t, obs$t/1000)
 		x = c(x, obs$x)
 		Action = obs$Action
+		if (is.na(obs$Action) || is.null(obs$Action)) { Action = ""}
+		else {Action = obs$Action}
 		prevIndex = Index
 	}
+	
 	if (!is.null(plot.file)){
-	 dev.off()
-	 par(op)
+		dev.off()
+		par(op)
 	}
+	return (c(plot.width, plot.height))
 }
-
 
 error.bar = function(x, y, upper, lower=upper, length=0.1,...){
 	if(length(x) != length(y) | length(y) !=length(lower) | length(lower) != length(upper))
@@ -517,4 +660,121 @@ plotNavigation = function(sdf, Step.Num.NoBranch=sort(unique(sdf$Step.Num.NoBran
 		}
 	}
 }
-i=9; plotNavigation(subset(wiseDF.gcc.cur,Workgroup.Id==unique(Workgroup.Id)[i]), Step.Num.NoBranch=sort(unique(wiseDF.gcc.cur$Step.Num.NoBranch)), by.Time = TRUE, main=paste("Linearity",1/100*round(scoreNavigation.linearity(subset(wiseDF.gcc.cur,Workgroup.Id==unique(Workgroup.Id)[i]), Step.Num.NoBranch=sort(unique(wiseDF.gcc.cur$Step.Num.NoBranch)), by.Time = TRUE)*100)))
+
+### Given an aggregrated data frame
+### Show comparison of condition across all vars
+### e.g. vars = c("Score.Pretest", "Score.Posttest")
+### if want to show over different subsets of agg use agg.subset (if length of vars < length of aggs.subset vars will be repeated)
+### e.g. agg.subsets = c(Score.Pretest < 3, SCORE.Pretest > 2)
+barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(unique(agg$Condition)), var.names=as.character(vars), condition.names=conditions, show.p.markers.between = TRUE, show.p.markers.across = FALSE, col = rainbow(length(conditions)), hide.legend = FALSE, legend.text = paste("Conditon", conditions),legend.padding.factor=5, legend.padding.xoffset=0, yaxis.at = NULL, mar.lims = NULL, ...){
+	#if (class(vars)[1] == "character"){
+	#	vars = which(names(agg) %in% vars)
+	#}
+	if (missing(agg.subsets)) 
+        subset.logical = TRUE
+    else {
+		exp = substitute(agg.subsets)
+		subset.logical = eval(exp, agg, parent.frame())
+		if (is.logical(subset.logical)) {
+			subset.logical = subset.logical & ! is.na(subset.logical)
+		} else if (is.list(subset.logical)){
+			for (i in 1:length(subset.logical))subset.logical[[i]] = subset.logical[[i]] & !is.na(subset.logical[[i]])
+		}
+	}
+	
+	if (is.list(subset.logical) && length(vars) < length(subset.logical)) vars = c(vars, rep(vars[length(vars)], length(subset.logical) - length(vars)))
+	means = matrix (rep(NA,length(vars)*length(conditions)),nrow=length(conditions),ncol=length(vars))
+	ses = matrix (rep(NA,length(vars)*length(conditions)),nrow=length(conditions),ncol=length(vars))
+	for (c in 1:ncol(means)){
+		for (r in 1:nrow(means)){
+			if (is.list(subset.logical)){
+				means[r, c] = mean(subset(agg,subset.logical[[c]]&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+				ses[r, c] = std.error(subset(agg,subset.logical[[c]]&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+			} else {
+				means[r, c] = mean(subset(agg,subset.logical&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+				ses[r, c] = std.error(subset(agg,subset.logical&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+			}
+		}
+	}
+	### repeat title if necessary
+	#print(means)
+	ten.percent.y = max(means+ses)/10
+	if (is.null(mar.lims)) {par(mar=c(5,4,4,2))}
+	else {par(mar = mar.lims)}
+	#print(mat)
+	#barx = barplot(means, beside=TRUE, col=c("blue", "red"), names.arg=var.names, legend.text=legend.text, legend.args=list(x=)...)
+	#print(barx)
+	if (is.null(yaxis.at)){
+		barx = barplot(means, beside=TRUE, col=col, names.arg=var.names, xpd=FALSE,...)
+		par(xpd=TRUE)
+	} else {
+		barx = barplot(means, beside=TRUE, col=col, names.arg=var.names, xpd=FALSE, axes=FALSE, ...)
+		par(xpd=TRUE)
+		axis(2, at=yaxis.at)
+	}
+	
+	if (!hide.legend) legend(x = max(barx)*2/3+legend.padding.xoffset, y = max(means+ses) + legend.padding.factor*ten.percent.y, legend = legend.text, col = col, pt.bg = col, pch=22)
+	axis(1, at=apply(barx,2,mean), labels=FALSE)
+	error.bar(barx, means, ses)
+	if (show.p.markers.between && length(conditions)==2){
+		p.values = numeric()
+		for (c in 1:ncol(means)){
+			if (is.list(subset.logical)){
+				vals.1 = subset(agg,subset.logical[[c]]&Condition==conditions[1])[,vars[c]]
+				vals.2 = subset(agg,subset.logical[[c]]&Condition==conditions[2])[,vars[c]]
+			} else {
+				vals.1 = subset(agg,subset.logical&Condition==conditions[1])[,vars[c]]
+				vals.2 = subset(agg,subset.logical&Condition==conditions[2])[,vars[c]]
+			}
+			p.value = t.test(vals.1, vals.2, var.equal=TRUE)$p.value
+			p.values = c(p.values,p.value)
+			if (p.value < 0.1){
+				segments(barx[1,c],max(means[,c]+ses[,c])+ten.percent.y,barx[2,c],max(means[,c]+ses[,c])+ten.percent.y)
+				segments(barx[1,c],max(means[,c]+ses[,c])+ten.percent.y/2,barx[1,c],max(means[,c]+ses[,c])+ten.percent.y)
+				segments(barx[2,c],max(means[,c]+ses[,c])+ten.percent.y/2,barx[2,c],max(means[,c]+ses[,c])+ten.percent.y)
+				segments(mean(barx[,c]),max(means[,c]+ses[,c])+ten.percent.y,mean(barx[,c]),max(means[,c]+ses[,c])+ten.percent.y*3/2)
+				if (p.value < 0.001){
+					marker = "***"
+				} else if (p.value < 0.01){
+					marker = "**"
+				} else if (p.value < 0.05){
+					marker = "*"
+				} else if (p.value < 0.1){
+					marker = "\u2020"
+				}
+				text(mean(barx[,c]),max(means[,c]+ses[,c])+ten.percent.y*2,labels=marker)
+			}
+		}
+	}
+	if (show.p.markers.across && length(vars)==2){
+		p.values = numeric()
+		for (r in 1:nrow(means)){
+			if (is.list(subset.logical)){
+				vals.1 = subset(agg,subset.logical[[1]]&Condition==conditions[r])[,vars[1]]
+				vals.2 = subset(agg,subset.logical[[2]]&Condition==conditions[r])[,vars[2]]
+			} else {
+				vals.1 = subset(agg,subset.logical&Condition==conditions[r])[,vars[1]]
+				vals.2 = subset(agg,subset.logical&Condition==conditions[r])[,vars[2]]
+			}
+			p.value = t.test(vals.1, vals.2, paired=TRUE,var.equal=TRUE)$p.value
+			p.values = c(p.values,p.value)
+			if (p.value < 0.1){
+				segments(barx[r,1],max(means[r,]+ses[r,])+ten.percent.y,barx[r,2],max(means[r,]+ses[r,])+ten.percent.y)
+				segments(barx[r,1],max(means[r,]+ses[r,])+ten.percent.y/2,barx[r,1],max(means[r,]+ses[r,])+ten.percent.y)
+				segments(barx[r,2],max(means[r,]+ses[r,])+ten.percent.y/2,barx[r,2],max(means[r,]+ses[r,])+ten.percent.y)
+				segments(mean(barx[r,]),max(means[r,]+ses[r,])+ten.percent.y,mean(barx[r,]),max(means[r,]+ses[r,])+ten.percent.y*3/2)
+				if (p.value < 0.001){
+					marker = "***"
+				} else if (p.value < 0.01){
+					marker = "**"
+				} else if (p.value < 0.05){
+					marker = "*"
+				} else if (p.value < 0.1){
+					marker = "\u2020"
+				}
+				text(mean(barx[r,]),max(means[r,]+ses[r,])+ten.percent.y*2,labels=marker)
+			}
+		}
+	}
+}
+
