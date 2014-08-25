@@ -36,36 +36,21 @@ as.wiseSW.wisedata.frame <- function(obj, ...){
 	}	
 }
 as.wiseSW.wiseSW <- function (sw, row, ...){
-	indices = grep("Student\\.Work", names(row))
-	row <- expandMultipleResponses(row, FALSE)
-	if (nrow(row) == 0) return (NULL)
-	for (ri in 1:nrow(row)){
-		vals <- row[ri,indices]
-		if (nchar(vals[1])==0) vals[1] <- " "
-		vals <- vals[nchar(vals) > 0]
-		if (vals[1]==" ") vals[1] <- ""
-		sw[[length(sw)+1]] <- vals
+	indices = grep("Student.Work", names(row));
+	for (i in 1:length(indices)){
+		sw[[i]] = row[1,indices[i]]
 	}
 	return(sw)
 }
 
 as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student.Work"){
 	### which indices contain Student Work?
-	indices <- grep(colNames, names(row))
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,indices]
-	
-	for (ri in 1:nrow(responses)){
-		lindex <- length(sw) + 1
-		# This type of step may have work on all columns of Student.Work
-		vals <- character()
-		for (ci in 1:ncol(responses)){
-			val <- responses[ri, ci]
-			if (is.na(val) || val == " " || val == "N/A") val = ""
-			vals <- c(vals, val)
-		}
-		vals <- vals[nchar(vals)>0]
-		sw[[lindex]] <- vals
+	indices = grep(colNames, names(row));
+	# This type of step may have work on all columns of Student.Work
+	for (i in indices){
+		val = row[1, i];
+		if (is.na(val) || val == "" || val == "N/A") val = "";
+		sw[[length(sw)+1]] = val;
 	}
 	return(sw)
 }
@@ -75,182 +60,102 @@ as.wiseSW.wiseSW.OpenResponse <- function(sw, row, colNames = "Student\\.Work\\.
 	index <- grep(colNames, names(row))[1];
 	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
 	row <- expandMultipleResponses(row, FALSE)
+	print(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
-	## with c-rater feedback student responses are stuck in brackets like Student Response: []
 	for (r in responses){
 		lindex <- length(sw) + 1
-		sw[[lindex]] <- list()
+		sw[[lindex]] <- list
 		if (regexpr("Student Response: \\[",r)[1] > -1){
 			exp = regexpr("Student Response: \\[",r)
 			start = exp[1] + attr(exp, "match.length") + 1
 			exp = regexpr("Student Response: \\[.*?\\]",r)
 			stop = exp[1] + attr(exp, "match.length") - 3
-			data <- substring(r, start, stop);
+			data = substring(r, start, stop);
 			## autoscoring?
 			if (regexpr("Check Answer: \\[",r)[1] > -1){
 				exp = regexpr("Check Answer: \\[",r)
 				start = exp[1] + attr(exp, "match.length")
 				exp = regexpr("Check Answer: \\[.*?\\]",r)
 				stop = exp[1] + attr(exp, "match.length") - 2
-				Check.Answer <- as.logical(substring(r, start, stop))
+				Check.Answer = as.logical(substring(r, start, stop))
 			}
 			## Yes we are checking answer for auto-score
 			if (Check.Answer){
 				### c-rater?
 				if (regexpr("CRater",r)[1] > -1){
-					Auto.Score.Type <- "CRater";
+					Auto.Score.Type = c(Auto.Score.Type, "CRater");
 					if (regexpr("CRater Score: \\[",r)[1] > -1){
 						exp = regexpr("CRater Score: \\[",r)
 						start = exp[1] + attr(exp, "match.length")
 						#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
 						exp = regexpr("CRater Score: \\[.*?\\]",r)
 						stop = exp[1] + attr(exp, "match.length") - 2
-						Auto.Score <- as.numeric(substring(r, start, stop))
+						d = substring(r, start, stop);
+						Auto.Score = c(Auto.Score, as.numeric(d))
 					} else {
-						Auto.Score <- NA
+						Auto.Score = c(Auto.Score, NA)
 					}
 					if (regexpr("CRater Feedback: \\[",r)[1] > -1){
 						exp = regexpr("CRater Feedback: \\[",r)
 						start = exp[1] + attr(exp, "match.length")
 						exp = regexpr("CRater Feedback: \\[.*?\\]",r)
 						stop = exp[1] + attr(exp, "match.length") - 2
-						Auto.Feedback <- substring(r, start, stop)
+						d = substring(r, start, stop);
+						Auto.Feedback = c(Auto.Feedback, d)
 					} else {
-						Auto.Feedback <- ""
+						Auto.Feedback = c(Auto.Feedback, "")
 					}
 				} else {
-					Auto.Score.Type <- "none"
-					Auto.Score <- NA
-					Auto.Feedback <- ""
+					Auto.Score.Type = c(Auto.Score.Type, "none")
+					Auto.Score = c(Auto.Score, NA)
+					Auto.Feedback = c(Auto.Feedback, "")
 				}
 			} else {
-				Auto.Score.Type <- "none"
-				Auto.Score <- NA
-				Auto.Feedback <- ""
+				Auto.Score.Type = c(Auto.Score.Type, "none")
+				Auto.Score = c(Auto.Score, NA)
+				Auto.Feedback = c(Auto.Feedback, "")
 			}
 		} else {
-			data <- r
-			Check.Answer <- FALSE
-			Auto.Score.Type <- "none"
-			Auto.Score <- NA
-			Auto.Feedback <- ""
+			data = c(data, r);
+			Check.Answer = c(Check.Answer, FALSE);
+			Auto.Score.Type = c(Auto.Score.Type, "none")
+			Auto.Score = c(Auto.Score, NA)
+			Auto.Feedback = c(Auto.Feedback, "")
 		}
-		sw[[lindex]][["data"]] <- data
-		sw[[lindex]][["Check.Answer"]] <- Check.Answer
-		sw[[lindex]][["Auto.Score.Type"]] <- Auto.Score.Type
-		sw[[lindex]][["Auto.Score"]] <- Auto.Score
-		sw[[lindex]][["Auto.Feedback"]] <- Auto.Feedback
+		sw[[lindix]][["data"]] = data;
+		sw[[lindix]][["Check.Answer"]] = Check.Answer
+		sw[[lindix]][["Auto.Score.Type"]] = Auto.Score.Type
+		sw[[lindix]][["Auto.Score"]] = Auto.Score
+		sw[[lindix]][["Auto.Feedback"]] = Auto.Feedback
 	}
 	
 	return(sw)
 }
+as.wiseSW(row2)
 #score(wise[r,], score.rubric = rubrics.nwords, out.colName = "NWords", as.data.frame.out=TRUE,DEBUG=TRUE)
-as.wiseSW.wiseSW.Mysystem2 <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
-	library(rjson)
-	#### which indices contain Student Work?
-	index = grep(colNames, names(row));
-	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	#data = character(); Is.Submit = logical(); Auto.Score = numeric(); Success = logical(); Auto.Feedback = character();tables = list();Svg = character()
-	for (r in responses){
-		lindex <- length(sw) + 1
-		sw[[lindex]] <- list()
-		# remove (escaped) newlines
-		r <- gsub("\\\\n","",r)
-		r <- gsub("\\\\c","",r)
-		### Get table of Nodes and Link
-		### Setup startNode endNode link
-		### Start with valid links, and then end with unlinked nodes
-		table <- data.frame(StartNode=character(), EndNode=character(), Link=character(), stringsAsFactors=FALSE)
-		info <- tryCatch(fromJSON(r)$response, error = function(e) return (NULL)) 
-		if (!is.null(info)){
-			is.submit <- tryCatch(as.logical(fromJSON(r)$isSubmit), error = function(e) return (FALSE)) 
-			links <- tryCatch(fromJSON(info)$MySystem.Link, error = function(e) return (list()))
-			nodes <- tryCatch(fromJSON(info)$MySystem.Node, error = function(e) return (list()))
-			if (length(links) > 0){
-				for (i in 1:length(links)){
-					link <- links[[i]]
-					if (!is.null(link$startNode) && !is.null(link$endNode) && !is.null(link$text)){
-						table <- rbind(table, data.frame(StartNode=link$startNode, EndNode=link$endNode, Link=link$text, stringsAsFactors=FALSE))
-					}
-				}
-			}
-			if (length(nodes) > 0){
-				for (i in 1:length(nodes)){
-					node = nodes[[i]]
-					node.id = node$guid
-					node.text = node$title
-					found = FALSE
-					### has this id been used in table, if not add it (as text)
-					if (nrow(table) > 0){
-						for (j in 1:nrow(table)){
-							if (table$StartNode[j] == node.id){
-								table$StartNode[j] <- node.text
-								found <- TRUE
-							}
-							if (table$EndNode[j] == node.id){
-								table$EndNode[j] <- node.text
-								found <- TRUE
-							}
-						}
-					}
-					if (!found){
-						table <- rbind(table, data.frame(StartNode=node.text, EndNode="", Link="", stringsAsFactors=FALSE))
-					}
-				}
-				### refactor
-				#table$Link = as.factor(table$Link)
-				#table$StartNode = as.factor(table$StartNode)
-				#table$EndNode = as.factor(table$EndNode)
-				#levels(table$StartNode) = union(levels(table$StartNode), levels(table$EndNode))
-				#levels(table$EndNode) = levels(table$StartNode)
-			}
-			lastscore = tryCatch(as.numeric(fromJSON(info)$MySystem.RubricScore$LAST_SCORE_ID$score), error = function(e) return (NA)) 
-			if (length(lastscore) == 0) lastscore <- NA
-			success = tryCatch(as.logical(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$success), error = function(e) return (FALSE)) 
-			if (length(success) == 0) success <- FALSE
-			feedback = tryCatch(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$feedback, error = function(e) return ("")) 
-			if (length(feedback) == 0) feedback <- ""
-			lastsvg = tryCatch(fromJSON(info)$MySystem.GraphicPreview$LAST_GRAPHIC_PREVIEW$svg, error = function(e) return ("")) 
-			if (length(lastsvg) == 0) lastsvg <- ""
-		} else {
-			is.submit <- NA
-			lastscore <- NA
-			success <- FALSE
-			feedback <- ""
-			lastsvg <- ""
-		}		
-		sw[[lindex]][["data"]] <- r
-		sw[[lindex]][["table"]] <- table
-		sw[[lindex]][["Is.Submit"]] <- is.submit
-		sw[[lindex]][["Success"]] <- success
-		sw[[lindex]][["Auto.Score"]] <- lastscore
-		sw[[lindex]][["Auto.Feedback"]] <- feedback
-		sw[[lindex]][["Svg"]] <- lastsvg
-	}
-	return (sw)
-}
+
 
 as.wiseSW.wiseSW.Note <- function (sw, row, colNames = "Student.Work"){
 	return (as.wiseSW.wiseSW.OpenResponse(sw,row,colNames))
 }
-as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student.Work"){
 	#### which indices contain Student Work?
-	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	for (r in responses){
+	indices = grep(colNames, names(row));
+	row = expandMultipleResponses(row, TRUE)
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	responses = row[1,indices];
+	responses.notblankL = responses != "";
+	responses.notblankL[1] = TRUE; ### keep the first
+	responses.notblankL[is.na(responses.notblankL)] = FALSE
+	responses = responses[responses.notblankL];
+	data = character(); 
+	history = data.frame()
+	models = data.frame()
+	for (rnum in 1:length(responses)){
+		r = responses[rnum]
 		r = gsub("\\\\n","",r)
-		lindex <- length(sw) + 1
-		sw[[lindex]] <- list()
-		data = character(); 
-		history = data.frame()
-		models = data.frame()
-		
+
 		info = tryCatch(fromJSON(r)$response, error = function(e) return (NULL)) 
 		if (!is.null(info) && is.list(info)){
 			if (!is.null(info$history) && is.list(info$history) && length(info$history) > 0){
@@ -278,25 +183,120 @@ as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student\\.Work\\.Pa
 				}
 				# rm dummies
 				models = models[,c(3:ncol(models))]
-				sw[[lindex]][["history"]] = history
-				sw[[lindex]][["models"]] = models	
-			} else {
-				sw[[lindex]] <- NA
 			}
-		} else {
-			sw[[lindex]] <- NA
 		}
 	}
+	sw[["history"]] = history
+	sw[["models"]] = models
 	return(sw)
 }
 #sw = as.wiseSW(row)
-
-as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.Mysystem2 <- function (sw, row, colNames = "Student.Work"){
+	library(rjson)
 	#### which indices contain Student Work?
-	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
+	indices = grep("Student\\.Work", names(row));
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	row = expandMultipleResponses(row, TRUE)
+	responses = row[1,indices];
+	responses = apply(responses,1,as.character)
+	responses.notblankL = responses != "" & unlist(lapply(responses,function(x)tryCatch(as.logical(fromJSON(x)$response != ""), error = function(e) return (FALSE))))
+	responses.notblankL[1] = TRUE; ### keep the first
+	responses.notblankL[is.na(responses.notblankL)] = FALSE
+	responses = responses[responses.notblankL];
+	data = character(); Is.Submit = logical(); Auto.Score = numeric(); Success = logical(); Auto.Feedback = character();
+	tables = list();
+	Svg = character()
+	## with c-rater feedback student responses are stuck in brackets like Student Response: []
+	for (rnum in 1:length(responses)){
+		r = responses[rnum]
+		# remove (escaped) newlines
+		r = gsub("\\\\n","",r)
+		r = gsub("\\\\c","",r)
+		### Get table of Nodes and Link
+		### Setup startNode endNode link
+		### Start with valid links, and then end with unlinked nodes
+		table = data.frame(StartNode=character(), EndNode=character(), Link=character(), stringsAsFactors=FALSE)
+		info = tryCatch(fromJSON(r)$response, error = function(e) return (NULL)) 
+		if (!is.null(info)){
+			is.submit = tryCatch(as.logical(fromJSON(r)$isSubmit), error = function(e) return (FALSE)) 
+			links = tryCatch(fromJSON(info)$MySystem.Link, error = function(e) return (list()))
+			nodes = tryCatch(fromJSON(info)$MySystem.Node, error = function(e) return (list()))
+			if (length(links) > 0){
+				for (i in 1:length(links)){
+					link = links[[i]]
+					if (!is.null(link$startNode) && !is.null(link$endNode) && !is.null(link$text)){
+						table = rbind(table, data.frame(StartNode=link$startNode, EndNode=link$endNode, Link=link$text, stringsAsFactors=FALSE))
+					}
+				}
+			}
+			if (length(nodes) > 0){
+				for (i in 1:length(nodes)){
+					node = nodes[[i]]
+					node.id = node$guid
+					node.text = node$title
+					found = FALSE
+					### has this id been used in table, if not add it (as text)
+					if (nrow(table) > 0){
+						for (j in 1:nrow(table)){
+							if (table$StartNode[j] == node.id){
+								table$StartNode[j] = node.text
+								found = TRUE
+							}
+							if (table$EndNode[j] == node.id){
+								table$EndNode[j] = node.text
+								found = TRUE
+							}
+						}
+					}
+					if (!found){
+						table = rbind(table, data.frame(StartNode=node.text, EndNode="", Link="", stringsAsFactors=FALSE))
+					}
+				}
+				### refactor
+				table$Link = as.factor(table$Link)
+				table$StartNode = as.factor(table$StartNode)
+				table$EndNode = as.factor(table$EndNode)
+				#levels(table$StartNode) = union(levels(table$StartNode), levels(table$EndNode))
+				#levels(table$EndNode) = levels(table$StartNode)
+			}
+			lastscore = tryCatch(as.numeric(fromJSON(info)$MySystem.RubricScore$LAST_SCORE_ID$score), error = function(e) return (NA)) 
+			if (length(lastscore) == 0) lastscore = NA
+			success = tryCatch(as.logical(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$success), error = function(e) return (FALSE)) 
+			if (length(success) == 0) success = FALSE
+			feedback = tryCatch(fromJSON(info)$MySystem.RuleFeedback$LAST_FEEDBACK$feedback, error = function(e) return ("")) 
+			if (length(feedback) == 0) feedback = ""
+			lastsvg = tryCatch(fromJSON(info)$MySystem.GraphicPreview$LAST_GRAPHIC_PREVIEW$svg, error = function(e) return ("")) 
+			if (length(lastsvg) == 0) lastsvg = ""
+		} else {
+			is.submit = NA
+			lastscore = NA
+			success = FALSE
+			feedback = ""
+			lastsvg = ""
+		}		
+		Is.Submit[rnum] = is.submit
+		data[rnum] = r
+		tables[[rnum]] = table
+		Svg[rnum] = lastsvg
+		Success[rnum] = success
+		Auto.Score[rnum] = lastscore
+		Auto.Feedback[rnum] = feedback
+	}
+	sw[["data"]] = data;
+	sw[["tables"]] = tables
+	sw[["Is.Submit"]] = Is.Submit
+	sw[["Success"]] = Success
+	sw[["Auto.Score"]] = Auto.Score
+	sw[["Auto.Feedback"]] = Auto.Feedback
+	sw[["Svg"]] = Svg
+	return (sw)
+}
+#as.wiseSW(row)
+#as.wiseSW(subset(wise,Step.Type=="Mysystem2"&nchar(Student.Work.Part.1)>50)[1,])
+
+as.wiseSW.wiseSW.Sensor <- function (sw, row, ...){
+	#### which indices contain Student Work?
+	indices = grep("Student.Work", names(row));
 	### Assumes that data comes from the spcial parser, there may be multiple student responses, the data will contain
 	### a list of responses and prediction values
 	val = row[1,indices[1]]; 
@@ -307,24 +307,28 @@ as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\
 	xMax = numeric()
 	yMin = numeric()
 	yMax = numeric()
-	data = list()
-	for (r in responses){
-		r <- gsub("\\\\n","",r)
-		lindex <- length(sw) + 1
-		ldata <- fromJSON(r);
-		predictions = convertListOfListToListOfVectors(ldata$predictionArray)
-		if (length(predictions) > 0){
+	data = list();
+	if (length(lval) > 1){
+		lval = lval[2:length(lval)];
+		for (i in 1:length(lval)){
+			ldata = fromJSON(lval[i]);
+			predictions = convertListOfListToListOfVectors(ldata$predictionArray)
 			predictionsdf = data.frame(id=rep("prediction",length(predictions$x)),x=predictions$x, y=predictions$y)
-			sw[[lindex]][['predictions']] <- predictionsdf
-			sw[[lindex]][['response']] <- ldata$response
-			sw[[lindex]][['xMin']] <- as.numeric(ldata$xMin)
-			sw[[lindex]][['xMax']] <- as.numeric(ldata$xMax)
-			sw[[lindex]][['yMin']] <- as.numeric(ldata$yMin)
-			sw[[lindex]][['yMax']] <- as.numeric(ldata$yMax)
-		} else {
-			sw[[lindex]] <- NA
+			data[[i]] = predictionsdf
+			responses[i] = ldata$response
+			xMin[i] = as.numeric(ldata$xMin)
+			xMax[i] = as.numeric(ldata$xMax)
+			yMin[i] = as.numeric(ldata$yMin)
+			yMax[i] = as.numeric(ldata$yMax)
 		}
 	}
+	sw[['predictions']] = data;
+	sw[['response']] = responses;
+	sw[['xMin']] = xMin
+	sw[['xMax']] = xMax
+	sw[['yMin']] = yMin
+	sw[['yMax']] = yMax
+
 	return(sw)
 }
 
@@ -332,16 +336,14 @@ as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\
 as.wiseSW.wiseSW.Grapher <- function (sw, row, ...){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	for (r in responses){
-		r <- gsub("\\\\n","",r)
-		lindex <- length(sw) + 1
-		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
+	# the car graph step has json data
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	if (grepl("Response #[0-9]+: ", val)){ 
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
 		### create a data frame that captures:
 		# id, x, y;
-		predictions <- data.frame(id = character(), x = numeric(), y = numeric())
+		sw[['predictions']] = data.frame(id = character(), x = numeric(), y = numeric())
 		if (length(datal$predictionArray) > 0){
 			for (p in 1:length(datal$predictionArray)){
 				if (length(datal$predictionArray[[p]]$predictions) > 0){
@@ -355,30 +357,27 @@ as.wiseSW.wiseSW.Grapher <- function (sw, row, ...){
 						x = x,
 						y = y
 					)
-					predictions <- rbind(predictions, pdf)	
+					sw[['predictions']] = rbind(sw[['predictions']], pdf)	
 				}
 			}
-			sw[[lindex]][['predictions']] <- predictions
-		} else {
-			sw[[lindex]] <- NA
 		}
-	} 			
+	} else {
+		sw[["data"]] = NA;
+	} 				
 	return(sw)
 }
 
 as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	for (r in responses){
-		r <- gsub("\\\\n","",r)
-		lindex <- length(sw) + 1
-		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
+	# the car graph step has json data
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	if (grepl("Response #[0-9]+: ", val)){ 
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
 		### create a data frame that captures:
 		# id, x, y;
-		predictions <- data.frame(id = character(), x = numeric(), y = numeric())
+		sw[['predictions']] = data.frame(id = character(), x = numeric(), y = numeric())
 		if (length(datal$predictionArray) > 0){
 			for (p in 1:length(datal$predictionArray)){
 				if (length(datal$predictionArray[[p]]$predictions) > 0){
@@ -387,17 +386,14 @@ as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 						x = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$x), simplify=TRUE),
 						y = sapply(datal$predictionArray[[p]]$predictions, function(l)return(l$y), simplify=TRUE)
 					)
-					predictions <- rbind(predictions, pdf)	
+					sw[['predictions']] = rbind(sw[['predictions']], pdf)	
 				}
 			}
-			sw[[lindex]]['predictions'] <- predictions
-		} else {
-			sw[[lindex]]['predictions'] <- NA
 		}
 		if (length(datal$observationArray) > 0){
 			### create a data frame that captures:
 			# Action, index in array, t, x
-			observations <- data.frame()
+			sw[['observations']] = data.frame()
 			for (p in 1:length(datal$observationArray)){
 				obs = datal$observationArray[[p]]
 				if (length(obs) > 0){
@@ -428,77 +424,17 @@ as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 					} else {
 						pdf = data.frame(Action=h,Index=1,t=NA, x=NA)
 					}
-					observations = rbind(observations, pdf)
+					sw[['observations']] = rbind(sw[['observations']], pdf)
 				}
-			} sw[[lindex]]['observations'] <- observations
-		} else {
-			sw[[lindex]]['observations'] <- NA
+			}
 		}
+	} else {
+		sw[["predictions"]] = NA;
 	} 				
 	return(sw)
 }
-as.wiseSW.wiseSW.MatchSequence <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
-	library(rjson)
-	nrow.titles = 0
-	ncol.titles = 1
 
-	#### which indices contain Student Work?
-	index = grep(colNames, names(row));
-	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	
-	for (r in responses){
-		lindex <- length(sw)+1
-		sw[[lindex]] <- list()
-		tableData = data.frame()
-		tableDimData = data.frame()
-		datal = fromJSON(as.character(r))$response
-		if (!is.null(datal$tableData)){
-			ncols = length(datal$tableData)
-			nrows = length(datal$tableData[[1]])
-			rtitles = character()
-			
-			#iterate through each column
-			for (c in (nrow.titles+1):ncols){
-				ctitle = ""
-				if (ncol.titles > 0){
-					for (r in 1:ncol.titles){
-						ctitle = paste(ctitle, as.character(datal$tableData[[c]][[r]]$text), collapse=".");
-					}
-				} else {
-					ctitle = paste("Col",c,sep=".")
-				}
-				column = character()
-				dimcolumn = character()
-				for (r in (ncol.titles+1):nrows){
-					column = c(column, as.character(datal$tableData[[c]][[r]]$text));
-					dimcolumn = c(dimcolumn, ifelse(!is.null(datal$tableData[[c]][[r]]$cellSize),datal$tableData[[c]][[r]]$cellSize, 15))
-				}
-				if (length(tableData) == 0){
-					tableData = data.frame(TEMP = column)
-					tableDimData = data.frame(TEMP = dimcolumn)
-				} else {
-					tableData$TEMP = column;
-					tableDimData$TEMP = dimcolumn;					
-				}
-				names(tableData)[which(names(tableData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
-				names(tableDimData)[which(names(tableDimData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
-			}
-			if (nrow.titles > 0){
-				row.names(tableData) = rtitles 
-				row.names(tableDimData) = rtitles
-			} 
-			sw[[lindex]]$table <- tableData
-			sw[[lindex]]$tableDims <- tableDimData
-		} else {
-			sw[[lindex]] <- NA
-		}
-	}
-}
-
-as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.Table <- function (sw, row, ...){
 	args = list(...)
 	if (is.null(args$nrow.titles)){
 		nrow.titles = 0
@@ -510,14 +446,13 @@ as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\
 	} else {
 		ncol.titles = eval(args$ncol.titles)
 	}
-	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	for (r in responses){
-		lindex <- length(sw)+1
-		sw[[lindex]] <- list()
-		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
+	indices = grep("Student.Work", names(row));
+	val = row[1, indices[1]];
+	if (val == "" || val == "N/A") val = NA;
+	tableData = data.frame()
+	tableDimData = data.frame()
+	if (!is.na(val)){
+		datal = fromJSON(sub("Response #[0-9]+: ", "",val))
 		if (!is.null(datal$tableData) && length(datal$tableData) > nrow.titles && length(datal$tableData[[1]]) > ncol.titles){
 			ncols = length(datal$tableData)
 			nrows = length(datal$tableData[[1]])
@@ -563,17 +498,13 @@ as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\
 				row.names(tableData) = rtitles 
 				row.names(tableDimData) = rtitles
 			} 
-			sw[[lindex][['table']] <- tableData
-			sw[[lindex][['tableDims'] <- tableDimData
-		} else {
-			sw[[lindex] <- NA
 		}
 	}
-	
+	sw$table = tableData
+	sw$tableDims = tableDimData
 	return(sw)
 }
-#TODO
-as.wiseSW.wiseSW.ExplanationBuilder <- function (sw, row,  colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.ExplanationBuilder <- function (sw, row, ...){
 	args = list(...)
 	if (is.null(args$specialDF)){
 		specialDF = NULL
@@ -585,11 +516,6 @@ as.wiseSW.wiseSW.ExplanationBuilder <- function (sw, row,  colNames = "Student\\
 	} else {
 		otherDF = eval(args$otherDF)
 	}
-	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	
 	#### There is no data in the student work, so look in special for some fields
 	### special holds the ideas that were sorted and into where
 	if (!is.null(specialDF)){
@@ -725,43 +651,43 @@ studentResponse.wisedata.frame <- function (obj, as.data.frame.out = TRUE, stude
 		return (studentResponses);
 	}	
 }
-studentResponse.wiseSW.OpenResponse <- function (obj, revision.number=999, ...){
+studentResponse.wiseSW.OpenResponse <- function (obj, ...){
 	if (length(obj) == 0) return ("N/A");
-	if (revision.number > length(obj)) revision.number <- length(obj)
-	obj <- obj[[revision.number]]
-	if (!is.null(obj$data)){
-		#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
-		return (obj$data);
-	} else {
-		return ("N/A");
+	if (TRUE){
+		if (!is.null(obj$data)){
+			#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
+			return (tail(obj$data,1));
+		} else {
+			return ("N/A");
+		}
 	} 
 }
-
 studentResponse.wiseSW.Note <- function (obj, ...){
 	return (studentResponse.wiseSW.OpenResponse(obj, ...))
 }
-studentResponse.wiseSW.MultipleChoice <- function (obj, revision.number=999, ...){
+studentResponse.wiseSW.MultipleChoice <- function (obj, ...){
 	if (length(obj) == 0) return ("N/A");
-	if (revision.number > length(obj)) revision.number <- length(obj)
-	obj <- obj[[revision.number]]
-	if (!is.null(obj[[1]])){
-		#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
-		return (obj[[1]]);
-	} else {
-		return ("N/A");
+	if (TRUE){
+		if (!is.null(obj[[1]])){
+			#### TODO - MAKE SURE THIS MATCHES THE VERSION OF THE RESPONSE THAT RECEIVES AN AUTO-SCORE (OKAY WHEN EXPANDED INTO MULTIPLE ROWS)
+			return (tail(obj[[1]],1));
+		} else {
+			return ("N/A");
+		}
 	} 
 }
-
-studentResponse.wiseSW.AssessmentList <- function (obj, revision.number=999, Student.Work.Part = 1, ...){
-	if (length(obj) == 0) return ("N/A");
-	if (revision.number > length(obj)) revision.number <- length(obj)
-	obj <- obj[[revision.number]]
-	
-	if (length(obj) < Student.Work.Part) return ("N/A")
-	else return (obj[[Student.Work.Part]])
+studentResponse.wiseSW.AssessmentList <- function (obj, ...){
+	args = list(...)
+	if (is.null(args$Student.Work.Part)){
+		Student.Work.Part = 1
+	} else {
+		Student.Work.Part = eval(args$Student.Work.Part)
+	}
+	if (length(obj) < Student.Work.Part) return ("N/A");
+	if (TRUE){
+		return (obj[[Student.Work.Part]])
+	} 
 }
-#studentResponse(row, as.data.frame.out=FALSE, revision.number=1,Student.Work.Part =1)
-
 
 ### for each Wise Id in the target look for condition in source. 
 transferCondition <- function (sourceDF, targetDF){

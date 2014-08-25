@@ -293,7 +293,7 @@ plot.predictions = function (predictions, ...){
 	#args = as.list(substitute(list(...)))[-1L]
 	args = list(...)
 	if (is.null(args$xlim)){
-		xlim=c(0, max(predictions$x))
+		xlim=c(0, max(predictions$x,1))
 	} else {
 		xlim = eval(args$xlim)
 	}
@@ -343,14 +343,17 @@ plot.predictions = function (predictions, ...){
 	for (i in 1:length(unique(predictions$id))){
 		sid = as.character(unique(predictions$id)[i])
 		pred = subset(predictions, id == sid)
-		if (!is.null(pred) && nrow(pred) > 0){
-			lines(pred$x, pred$y,col=cols[i],lwd=lwd,type='b')
-		}
+		
 		if (!is.null(expected)){
 			expec = subset(expected, id == sid)
+			if (is.null(args$cols.expected)){ col = cols[i]}
+			else {col = args$cols.expected[i]}
 			if (!is.null(pred) && nrow(expec) > 0){
-				lines(expec$x, expec$y,col=cols[i],lwd=lwd, lty=3,type='l')
+				lines(expec$x, expec$y,col=col,lwd=lwd, lty=3,type='l')
 			}
+		}
+		if (!is.null(pred) && nrow(pred) > 0){
+			lines(pred$x, pred$y,col=cols[i],lwd=lwd,type='b')
 		}
 	}
 	if (!is.null(plot.file)){
@@ -666,7 +669,8 @@ plotNavigation = function(sdf, Step.Num.NoBranch=sort(unique(sdf$Step.Num.NoBran
 ### e.g. vars = c("Score.Pretest", "Score.Posttest")
 ### if want to show over different subsets of agg use agg.subset (if length of vars < length of aggs.subset vars will be repeated)
 ### e.g. agg.subsets = c(Score.Pretest < 3, SCORE.Pretest > 2)
-barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(unique(agg$Condition)), var.names=as.character(vars), condition.names=conditions, show.p.markers.between = TRUE, show.p.markers.across = FALSE, col = rainbow(length(conditions)), hide.legend = FALSE, legend.text = paste("Conditon", conditions),legend.padding.factor=5, legend.padding.xoffset=0, yaxis.at = NULL, mar.lims = NULL, ...){
+barplot.by.condition = function (agg, vars, agg.subsets, condition.measure="Condition", conditions, var.names=as.character(vars), condition.names=conditions, show.p.markers.between = TRUE, show.p.markers.across = FALSE, col = rainbow(length(conditions)), hide.legend = FALSE, legend.text = paste(condition.names, "Condition"),legend.padding.factor=5, legend.padding.xoffset=0, yaxis.at = NULL, mar.lims = NULL, args.xaxis = NULL, args.yaxis = NULL, args.legend = NULL, ...){
+	library(plotrix)
 	#if (class(vars)[1] == "character"){
 	#	vars = which(names(agg) %in% vars)
 	#}
@@ -681,6 +685,15 @@ barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(uniqu
 			for (i in 1:length(subset.logical))subset.logical[[i]] = subset.logical[[i]] & !is.na(subset.logical[[i]])
 		}
 	}
+	if (missing(conditions) && length(which(names(agg) == condition.measure))>0){
+		conditions = sort(unique(agg[,condition.measure]))
+		print(conditions)
+	} else {
+		# if an invalid condition measure is supplied, then use all
+		agg$ALL = TRUE
+		condition.measure = "ALL"
+		conditions = TRUE
+	}
 	
 	if (is.list(subset.logical) && length(vars) < length(subset.logical)) vars = c(vars, rep(vars[length(vars)], length(subset.logical) - length(vars)))
 	means = matrix (rep(NA,length(vars)*length(conditions)),nrow=length(conditions),ncol=length(vars))
@@ -688,19 +701,18 @@ barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(uniqu
 	for (c in 1:ncol(means)){
 		for (r in 1:nrow(means)){
 			if (is.list(subset.logical)){
-				means[r, c] = mean(subset(agg,subset.logical[[c]]&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
-				ses[r, c] = std.error(subset(agg,subset.logical[[c]]&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+				means[r, c] = mean(subset(agg,subset.logical[[c]]&agg[,condition.measure]==conditions[r])[,vars[c]], na.rm=TRUE)
+				ses[r, c] = std.error(subset(agg,subset.logical[[c]]&agg[,condition.measure]==conditions[r])[,vars[c]], na.rm=TRUE)
 			} else {
-				means[r, c] = mean(subset(agg,subset.logical&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
-				ses[r, c] = std.error(subset(agg,subset.logical&Condition==conditions[r])[,vars[c]], na.rm=TRUE)
+				means[r, c] = mean(subset(agg,subset.logical&agg[,condition.measure]==conditions[r])[,vars[c]], na.rm=TRUE)
+				ses[r, c] = std.error(subset(agg,subset.logical&agg[,condition.measure]==conditions[r])[,vars[c]], na.rm=TRUE)
 			}
 		}
 	}
 	### repeat title if necessary
 	#print(means)
 	ten.percent.y = max(means+ses)/10
-	if (is.null(mar.lims)) {par(mar=c(5,4,4,2))}
-	else {par(mar = mar.lims)}
+	if (!is.null(mar.lims)) {par(mar=mar.lims)}
 	#print(mat)
 	#barx = barplot(means, beside=TRUE, col=c("blue", "red"), names.arg=var.names, legend.text=legend.text, legend.args=list(x=)...)
 	#print(barx)
@@ -713,18 +725,19 @@ barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(uniqu
 		axis(2, at=yaxis.at)
 	}
 	
-	if (!hide.legend) legend(x = max(barx)*2/3+legend.padding.xoffset, y = max(means+ses) + legend.padding.factor*ten.percent.y, legend = legend.text, col = col, pt.bg = col, pch=22)
-	axis(1, at=apply(barx,2,mean), labels=FALSE)
+	#if (!hide.legend) legend(x = max(barx)*2/3+legend.padding.xoffset, y = max(means+ses) + legend.padding.factor*ten.percent.y, legend = legend.text, col = col, pt.bg = col, pch=22, args.legend)
+	if (!hide.legend) do.call(legend, c(list(x = max(barx)*2/3+legend.padding.xoffset), list(y = max(means+ses) + legend.padding.factor*ten.percent.y), list(legend = legend.text), list(col = col), args.legend))
+	do.call(axis, c(list(side=1), list(at=apply(barx,2,mean)), list(labels=FALSE), args.xaxis))
 	error.bar(barx, means, ses)
 	if (show.p.markers.between && length(conditions)==2){
 		p.values = numeric()
 		for (c in 1:ncol(means)){
 			if (is.list(subset.logical)){
-				vals.1 = subset(agg,subset.logical[[c]]&Condition==conditions[1])[,vars[c]]
-				vals.2 = subset(agg,subset.logical[[c]]&Condition==conditions[2])[,vars[c]]
+				vals.1 = subset(agg,subset.logical[[c]]&agg[,condition.measure]==conditions[1])[,vars[c]]
+				vals.2 = subset(agg,subset.logical[[c]]&agg[,condition.measure]==conditions[2])[,vars[c]]
 			} else {
-				vals.1 = subset(agg,subset.logical&Condition==conditions[1])[,vars[c]]
-				vals.2 = subset(agg,subset.logical&Condition==conditions[2])[,vars[c]]
+				vals.1 = subset(agg,subset.logical&agg[,condition.measure]==conditions[1])[,vars[c]]
+				vals.2 = subset(agg,subset.logical&agg[,condition.measure]==conditions[2])[,vars[c]]
 			}
 			p.value = t.test(vals.1, vals.2, var.equal=TRUE)$p.value
 			p.values = c(p.values,p.value)
@@ -750,11 +763,11 @@ barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(uniqu
 		p.values = numeric()
 		for (r in 1:nrow(means)){
 			if (is.list(subset.logical)){
-				vals.1 = subset(agg,subset.logical[[1]]&Condition==conditions[r])[,vars[1]]
-				vals.2 = subset(agg,subset.logical[[2]]&Condition==conditions[r])[,vars[2]]
+				vals.1 = subset(agg,subset.logical[[1]]&agg[,condition.measure]==conditions[r])[,vars[1]]
+				vals.2 = subset(agg,subset.logical[[2]]&agg[,condition.measure]==conditions[r])[,vars[2]]
 			} else {
-				vals.1 = subset(agg,subset.logical&Condition==conditions[r])[,vars[1]]
-				vals.2 = subset(agg,subset.logical&Condition==conditions[r])[,vars[2]]
+				vals.1 = subset(agg,subset.logical&agg[,condition.measure]==conditions[r])[,vars[1]]
+				vals.2 = subset(agg,subset.logical&agg[,condition.measure]==conditions[r])[,vars[2]]
 			}
 			p.value = t.test(vals.1, vals.2, paired=TRUE,var.equal=TRUE)$p.value
 			p.values = c(p.values,p.value)
@@ -777,4 +790,3 @@ barplot.by.condition = function (agg, vars, agg.subsets, conditions = sort(uniqu
 		}
 	}
 }
-

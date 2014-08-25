@@ -1,8 +1,8 @@
 ### For creating special data frames
 
-as.wiseSpecial = function(obj, type, ...) UseMethod("as.wiseSpecial")
-as.wiseSpecial.default = function (obj, type, ...){return("Cannot convert input into a special data frame")}
-as.wiseSpecial.wisedata.frame = function (obj, type, ...){
+as.wiseSpecial <- function(obj, type, ...) UseMethod("as.wiseSpecial")
+as.wiseSpecial.default <- function (obj, type, ...){return("Cannot convert input into a special data frame")}
+as.wiseSpecial.wisedata.frame <- function (obj, type, ...){
 	if (is.null(nrow(obj)) && length(which(names(obj) == "Step.Type")) > 0){
 		print("The inputted data frame must contain column names and a step type.");
 		return (NULL);
@@ -15,7 +15,7 @@ as.wiseSpecial.wisedata.frame = function (obj, type, ...){
 }
 
 ####### private functions for as.wiseSpecial
-as.wiseSpecial.Box2dModel.history = function (obj, ...){
+as.wiseSpecial.Box2dModel.history <- function (obj, ...){
 	out.df = data.frame()
 	### use only box2d steps
 	obj.b2d = subset(obj, Step.Type=="Box2dModel")
@@ -51,4 +51,4 @@ as.wiseSpecial.Box2dModel.history = function (obj, ...){
 
 	return (out.df)
 }
-box2d.history = as.wiseSpecial(wise, type = "Box2dModel.history")
+#box2d.history = as.wiseSpecial(wise, type = "Box2dModel.history")

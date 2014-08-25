@@ -1,8 +1,8 @@
 ############
 ### This function iterates through a wise data frame to construct individual behaviors
-behaviors = function (obj, ...) UseMethod ("behaviors");
-behaviors.default = function (obj, ...){return(NULL);}
-behaviors.wisedata.frame = function (obj, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
+behaviors <- function (obj, ...) UseMethod ("behaviors");
+behaviors.default <- function (obj, ...){return(NULL);}
+behaviors.wisedata.frame <- function (obj, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
 	behaviors = data.frame()	
 	wids = unique(obj$Workgroup.Id)
 	for (wid in wids){
@@ -31,7 +31,7 @@ behaviors.wisedata.frame = function (obj, Column.Names = c("Workgroup.Id", "Wise
 	
 	return (behaviors)
 }
-behaviors.Table = function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
+behaviors.Table <- function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
 	row = obj[rownum, ]
 	sw = as.wiseSW(row)
 	### Table behaviors are given in relationship to any previous instances of the table on this step
@@ -113,7 +113,7 @@ behaviors.Table = function (obj, rownum, include.same = TRUE, Column.Names = c("
 	behavior$Value.New = Value.New
 	return (behavior)
 }
-behaviors.Grapher = function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
+behaviors.Grapher <- function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
 	row = obj[rownum, ]
 	sw = as.wiseSW(row)
 	### Graph behaviors are given in relationship to any previous instances of the graph on this step
@@ -242,7 +242,7 @@ behaviors.Grapher = function (obj, rownum, include.same = TRUE, Column.Names = c
 	behavior$Value.New = Value.New
 	return (behavior)
 }
-behaviors.CarGraph = function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
+behaviors.CarGraph <- function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
 	row = obj[rownum, ]
 	sw = as.wiseSW(row)
 	if (!is.null(sw$observations) && nrow(sw$observations) > 0){
@@ -359,7 +359,7 @@ behaviors.CarGraph = function (obj, rownum, include.same = TRUE, Column.Names = 
 	behavior$Value.New = Value.New
 	return (behavior)
 } 
-behaviors.generic = function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
+behaviors.generic <- function (obj, rownum, include.same = TRUE, Column.Names = c("Workgroup.Id", "Wise.Id.1", "Wise.Id.2", "Wise.Id.3", "Step.Num", "Step.Num.NoBranch", "Step.Title", "Step.Id", "Step.Work.Id", "Start.Time.Student.Clock", "Time.Spent.Seconds", "Step.Type"), ...){
 	row = obj[rownum, ]
 	behavior = subset(row, TRUE, Column.Names)
 	behavior$Behavior.Num = 1
@@ -385,7 +385,7 @@ library(gridExtra)
 library(gtable)
 library(rjson)
 
-write.behaviors = function (obj, dir.out, filename=NULL, b = behaviors(obj), sheet.by = "Workgroup.Id", parameters.by.step = NULL, append=FALSE){
+write.behaviors <- function (obj, dir.out, filename=NULL, b = behaviors(obj), sheet.by = "Workgroup.Id", parameters.by.step = NULL, append=FALSE){
 	if (is.null(filename)) filename = paste("Behaviors", paste(unique(obj$Run.Id),collapse="-"),".xlsx",sep="")
 	print(paste(dir.out,filename,sep=""))
 	wb = loadWorkbook(paste(dir.out,filename,sep=""), create = !append)
@@ -565,7 +565,7 @@ write.behaviors = function (obj, dir.out, filename=NULL, b = behaviors(obj), she
 
 ### the codeToNameMap should be a list of lists. Each sublist will have a codes vector
 ### and a name string. e.g. list(list(codes=c(1,2),name="Good")). If in a column a code of 1 or 2 is matched a column with .Good appended will be 1, not 0
-transformBehaviorCodesToBinary = function (summary, codeToNameMap, ColNames){
+transformBehaviorCodesToBinary <- function (summary, codeToNameMap, ColNames){
 	for (col in 1:length(ColNames)){
 		ColName = ColNames[col]
 		values = summary[,ColName]
@@ -582,7 +582,7 @@ transformBehaviorCodesToBinary = function (summary, codeToNameMap, ColNames){
 }
 
 ### Creates a sum of each error across steps, and all errors on each step
-addSummaryBehaviorCodes = function (summary, ErrorNames = character(), Step.Num = numeric(), BehaviorTypes = character(), postfix = ""){
+addSummaryBehaviorCodes <- function (summary, ErrorNames = character(), Step.Num = numeric(), BehaviorTypes = character(), postfix = ""){
 	### Get behavior types 
 	BehaviorTypes.real = unique(sub(".*[0-9]+\\.[0-9]+\\.","",grep("B\\.",names(summary),value=TRUE)))
 	if (length(BehaviorTypes) > 0) BehaviorTypes.real = BehaviorTypes[BehaviorTypes %in% BehaviorTypes.real]

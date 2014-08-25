@@ -1,6 +1,7 @@
 library(plyr)
 
-write.wisedata.frame.prepost = function(obj, dir.out, filename=NULL, byCondition=FALSE, pretest.identifier = "Pretest", posttest.identifier = "Posttest", extra.columns=character()){
+write.wisedata.frame.prepost <- function(obj, dir.out, filename=NULL, byCondition=FALSE, pretest.identifier = "Pretest", posttest.identifier = "Posttest", extra.columns=character()){
+	library(xlsx)
 	# get all unique step titles
 	obj.pre = subset(obj, grepl(pretest.identifier,obj$Step.Id))
 	obj.post = subset(obj, grepl(posttest.identifier,obj$Step.Id))
@@ -13,8 +14,8 @@ write.wisedata.frame.prepost = function(obj, dir.out, filename=NULL, byCondition
 	print(paste(dir.out,filename,sep=""))
 	for (s in 1:length(Step.Id)){
 		step.title = Step.Id[s]
-		obj.pre.step = subset(obj.pre, grepl(step.title, Step.Id))
-		obj.post.step = subset(obj.post, grepl(step.title, Step.Id))
+		obj.pre.step = subset(obj.pre, grepl(step.title, Step.Id, fixed = TRUE))
+		obj.post.step = subset(obj.post, grepl(step.title, Step.Id, fixed = TRUE))
 		# make sure that there are responses to this step
 		indices = grep("Student.Work", names(obj.pre.step))
 		if (length(unique(obj.pre.step[,indices[1]])) > 1 && length(unique(obj.post.step[,indices[1]])) > 1){
@@ -59,9 +60,9 @@ write.wisedata.frame.prepost = function(obj, dir.out, filename=NULL, byCondition
 	}
 	return(obj.step)
 }
-#values.prepost = write.wisedata.frame.prepost(wise.mdhs, excelOutDirectory,"MDHS-Values-PrePost.xlsx", pretest.identifier="ValuesPre", posttest.identifier="ValuesMid")
 
-write.wisedata.frame.step.to.step = function(obj, Step.Id.1, Step.Id.2, dir.out=NULL, filename=NULL, byCondition=FALSE, extra.columns=character()){
+write.wisedata.frame.step.to.step <- function(obj, Step.Id.1, Step.Id.2, dir.out=NULL, filename=NULL, byCondition=FALSE, extra.columns=character()){
+	library(xlsx)
 	# get all unique step titles
 	obj.pre = subset(obj, Step.Id %in% Step.Id.1)
 	obj.post = subset(obj, Step.Id %in% Step.Id.2)
@@ -115,7 +116,9 @@ write.wisedata.frame.step.to.step = function(obj, Step.Id.1, Step.Id.2, dir.out=
 	}
 	return (obj.step)
 }
-write.step.record.between.steps = function(obj, Step.Id.1, Step.Id.2, repeated.column.names=c("Step.Work.Id","Step.Title","Time.Spent.Seconds","Student.Work.Part.1"), dir.out=NULL, filename=NULL, byCondition=FALSE, extra.columns=character()){
+
+write.step.record.between.steps <- function(obj, Step.Id.1, Step.Id.2, repeated.column.names=c("Step.Work.Id","Step.Title","Time.Spent.Seconds","Student.Work.Part.1"), dir.out=NULL, filename=NULL, byCondition=FALSE, extra.columns=character()){
+	library(xlsx)
 	# get all unique step titles
 	obj.pre = subset(obj, Step.Id %in% Step.Id.1)
 	obj.post = subset(obj, Step.Id %in% Step.Id.2)
@@ -217,6 +220,7 @@ write.step.record.between.steps = function(obj, Step.Id.1, Step.Id.2, repeated.c
 ### In the case of Step.Id.stop, if before.initial.stop.step is TRUE then records will stop before the first appearance of the stop step
 ###     If false, then records will stop before the last appearance of the stop step.
 write.step.record = function(obj, Step.Id.target, Step.Id.start=NULL, Step.Id.stop=NULL, after.initial.start.step = TRUE, before.initial.stop.step = TRUE, repeated.column.names=c("Step.Work.Id","Time.Spent.Seconds","Student.Work.Part.1"), dir.out=NULL, filename=NULL, byCondition=FALSE, extra.columns=character()){
+	library(xlsx)
 	# get all unique step titles
 	if (!is.null(Step.Id.start)) obj.start = subset(obj, Step.Id %in% Step.Id.start)
 	if (!is.null(Step.Id.stop)) obj.stop = subset(obj, Step.Id %in% Step.Id.stop)
@@ -252,13 +256,13 @@ write.step.record = function(obj, Step.Id.target, Step.Id.start=NULL, Step.Id.st
 					step.index = step.index[step.index < max(stop.index)]
 				}
 			}
+			#print(unique(subset(obj,Workgroup.Id==wgid)[,rc]))
 			step.ids = as.character(subset(obj,Workgroup.Id==wgid & Index %in% step.index)[, rc])
-			
 			numeric.steps = c("Step.Work.Id", "Time.Spent.Seconds")
 			if (rc %in% numeric.steps) step.ids=as.numeric(step.ids)
+			#print(step.ids)
 			
 			# if there are more steps make the data frame larger
-			
 			if (length(step.ids) + 1 > ncol(step.ids.between)){
 				for (x in (ncol(step.ids.between)):(length(step.ids))){
 					if (rc %in% numeric.steps){
@@ -269,13 +273,15 @@ write.step.record = function(obj, Step.Id.target, Step.Id.start=NULL, Step.Id.st
 					names(step.ids.between)[names(step.ids.between)=="V"] = paste(rc,"V",x,sep=".")
 				}
 				#step.ids.between = rbind(step.ids.between, step.ids)
-			} else if (length(step.ids) > 0 && length(step.ids) < ncol(step.ids.between)+1){
+			} else if (length(step.ids) > 0 && length(step.ids)+1< ncol(step.ids.between)){
 				if (rc %in% numeric.steps){
 					step.ids = c(step.ids, rep(NA, length(step.ids.between)-1 - length(step.ids)))
 				} else {
 					step.ids = c(step.ids, rep("", length(step.ids.between)-1 - length(step.ids)))
 				}
-				step.ids.between = rbind(step.ids.between, step.ids)
+				#print(step.ids)
+				#print(names(step.ids.between))
+				#step.ids.between = rbind(step.ids.between, step.ids)
 			} 
 
 			### find row and fill in columns
@@ -304,7 +310,8 @@ write.step.record = function(obj, Step.Id.target, Step.Id.start=NULL, Step.Id.st
 	return (obj.step.ids)
 }
 
-write.wisedata.frame.allsteps = function(obj, dir.out, filename=NULL, byCondition=FALSE, extra.columns=character()){
+write.wisedata.frame.allsteps <- function(obj, dir.out, filename=NULL, byCondition=FALSE, extra.columns=character()){
+	library(xlsx)
 	# get all unique step titles
 	Step.Id = gsub("\\?", "\\.", unique(obj$Step.Id))
 	append = FALSE
@@ -315,13 +322,13 @@ write.wisedata.frame.allsteps = function(obj, dir.out, filename=NULL, byConditio
 		step.title = Step.Id[s]
 		obj.step = subset(obj, Step.Id == step.title)
 		# make sure that there are responses to this step
-		indices = grep("Student.Work", names(obj.step))
+		indices = grep("Student\\.Work", names(obj.step))
 		if (length(unique(obj.step[,indices[1]])) > 1){
 			for (i in 1:length(indices)){
 				index = indices[i]
 				# get student response for all student work with some actual responses
 				if (length(unique(obj.step[,index])) > 0){
-					obj.step[,paste("Student.Response",i,sep=".")] = studentResponse(obj.step, Student.Work.Part = i, as.data.frame.out=FALSE)
+					obj.step[,paste("Student.Response",i,sep=".")] <- studentResponse(obj.step, Student.Work.Part = i, as.data.frame.out=FALSE)
 				}		
 			}
 			indices = grep("Student.Response", names(obj.step))
@@ -349,7 +356,7 @@ write.wisedata.frame.allsteps = function(obj, dir.out, filename=NULL, byConditio
 	return(obj.step)
 }
 
-write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters.by.step = NULL, extra.columns=c("Research.Score")){
+write.wisedata.frame.Grapher <- function (obj, dir.out, dir.plot, filename=NULL, parameters.by.step = NULL, extra.columns=c("Research.Score")){
 	suppressPackageStartupMessages(library("XLConnect",character.only=TRUE))
 	suppressPackageStartupMessages(library("rjson",character.only=TRUE))
 	# get all steps with a grapher or sensor
@@ -377,6 +384,10 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 			sheetname = paste(substr(step.title,1,26),sep="")
 			if (sheetname %in% sheetnames) sheetname = paste(sheetname, ".2",sep="")
 			sheetnames = c(sheetnames, sheetname)
+			sheetname = gsub("'","",sheetname)
+			sheetname = gsub("\\(","",sheetname)
+			sheetname = gsub("\\)","",sheetname)
+				
 			print(sheetname)
 			createSheet(wb, name = sheetname)
 			writeWorksheet(wb, data = subset(obj.step, TRUE, relevant.columns), sheet = sheetname)
@@ -385,10 +396,12 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 			for (r in 1:nrow(obj.step)){
 				row = obj.step[r,]
 				step.num = row$Step.Num
+				step.numnb = row$Step.Num.NoBranch
+				step.id = row$Step.Id
 				#look for step parameters
 				if (!is.null(parameters.by.step)){
 					for (param in parameters.by.step){
-						if (!is.null(param$Step.Num) && step.num %in% param$Step.Num){
+						if ((!is.null(param$Step.Num) && step.num %in% param$Step.Num) || (!is.null(param$Step.Id) && step.id %in% param$Step.Id) || (!is.null(param$Step.Num.NoBranch) && step.numnb %in% param$Step.Num.NoBranch)){
 							#use this param
 							break
 						} else {
@@ -398,7 +411,7 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 				}
 				sw = as.wiseSW(row)
 				predictions = sw$predictions
-				if (is.list(predictions) && length(predictions) > 0) predictions = tail(predictions, 1)[[1]]
+				if (is.list(predictions) && !is.data.frame(predictions) && length(predictions) > 0) predictions = tail(predictions, 1)[[1]]
 				if (!is.null(param$expected)){expected = param$expected} else {expected = data.frame(id = character(), x = numeric(), y = numeric())}
 				if (!is.null(sw$xMin) && !is.null(sw$xMax) && length(sw$xMin) > 0 && length(sw$xMax) > 0 && !is.na(tail(sw$xMin,1)) && !is.na(tail(sw$xMax,1))) {
 					xlim = c(tail(sw$xMin,1), tail(sw$xMax,1))
@@ -406,7 +419,8 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 					# if scale does not match, then auto-adjust
 					if (!is.null(param$xlim) && length(param$xlim) == 2){
 						xlim = param$xlim
-						if (!is.null(predictions$x) && length(predictions$x) > 1 && (max(predictions$x) <= 1 || max(predictions$x) > xlim[2])) {
+						#print(paste(row$Step.Work.Id))
+						if (!is.null(predictions$x) && length(predictions$x) > 1 && (max(predictions$x,na.rm=TRUE) <= 1 || max(predictions$x,na.rm=TRUE) > xlim[2])) {
 							xlim[2] = max(c(1,predictions$x))
 						}
 					} else {
@@ -419,7 +433,7 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 					# if scale does not match, then auto-adjust
 					if (!is.null(param$ylim) && length(param$ylim) == 2){
 						ylim = param$ylim
-						if (!is.null(predictions$y) && length(predictions$y) > 1 && (max(predictions$y) <= 1 || max(predictions$y) > ylim[2])) {
+						if (!is.null(predictions$y) && length(predictions$y) > 1 && (max(predictions$y,na.rm=TRUE) <= 1 || max(predictions$y,na.rm=TRUE) > ylim[2])) {
 							ylim[2] = max(c(1,predictions$y))
 						}
 					} else {
@@ -428,7 +442,6 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 				}
 				
 				if (!is.null(param$cols)){cols = param$cols} else {cols = NULL}
-				
 				plot.width = 40 * 7
 				plot.height = 30 * 7
 				png(paste(dir.plot,"tmp-image.png", sep=""), plot.width, plot.height)
@@ -451,4 +464,5 @@ write.wisedata.frame.Grapher = function (obj, dir.out, filename=NULL, parameters
 	}
 	saveWorkbook(wb)
 }
-write.wisedata.frame.Grapher(subset(wise,Is.Unit==TRUE), dir.out=dir.out, filename="GraphingStories-Spring2013-Graphs.xlsx", parameters.by.step=parameters.by.step.spring2013)
+#write.wisedata.frame.Grapher(subset(wise, Step.Id%in%items.unit[5]), dir.out=dir.out, dir.plot=dir.plot, filename="GraphingStories-Unit-Graphs-Fall2013-All.xlsx", parameters.by.step=parameters.Unit.Graphs, extra.columns=c("Research.Score","C.SlopeInterpretationError","C.Functional", "C.InitialPoint","C.Backwards","C.Motionless","C.ChangeSpeedForwards"))
+#as.wiseSW(subset(wise,Step.Work.Id==5956928))
