@@ -3,6 +3,124 @@
 ##
 ##
 
+# mergeWorksheets will merge all worksheets named by either sheetIndices or sheetNames
+# Will merge based on column name provided by "by". Make sure that this column exists in all of the target worksheets.
+# As the worksheets are merged new column names are made by appending the name of the worksheet to the repeated column
+# Only columns specified in "select" will be repeated, default is NULL which means to copy all columns
+# Columns in select.first are repeats of the same information, and so only will be taken from the first worksheet
+# intersperse TRUE means to paste repeat consecutively, FALSE means to block all columns from same worksheet    
+mergeWorksheetRows <- function (filename, by = "Workgroup.Id", select = NULL, select.first = character(), sheetIndices = NULL, sheetNames = NULL, filename.out=NULL, append=FALSE){
+	#detach('package:XLConnect', unload=TRUE)
+	library(xlsx)
+	wb <- loadWorkbook (filename)
+	sheets <- getSheets (wb)
+	snames <- sapply(sheets,function(s)return(s$getSheetName()))
+	if (!is.null(sheetIndices)){
+		sheetIndices <- (1:length(sheets))[(1:length(length(sheets))) %in% sheetIndices]
+	} else if (!is.null(sheetNames)){
+		sheetIndices <- which(snames %in% sheetNames)
+	} else {
+		stop("You need to provide either a vector of sheet indices (eg. 1:100) or sheet names")
+	}
+	
+	if (length(sheets) == 0) stop("No worksheets were loaded, check spelling of path and, if appplicable, sheet names")
+
+	## load first sheet and take selection of columns
+	sheet <- sheets[[sheetIndices[1]]]
+	obj <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
+	if (!is.null(select)){
+		select.in.sheet <- c(by, select.first, select)
+		select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj)]
+		obj <- obj[,select.in.sheet]
+	} else {
+		obj <- obj[,!grepl("^X\\.",names(obj))]
+	}
+	obj <- obj[!is.na(obj[,by])&nchar(as.character(obj[,by]))>0,]
+	# put sheet name at end
+	names(obj)[which(names(obj) != by)] <- paste(names(obj)[which(names(obj) != by)], " - ",snames[sheetIndices[1]],sep="")
+
+	## merge subsequent worksheets
+	if (length(sheetIndices) > 1){
+		for (s in 2:length(sheetIndices)){
+			sheet <- sheets[[sheetIndices[s]]]
+			obj.temp <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
+			if (!is.null(select)){
+				select.in.sheet <- c(by, select)
+				select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj.temp)]
+				obj.temp <- obj.temp[,select.in.sheet]
+			} else {
+				obj.temp <- obj.temp[,!grepl("^X\\.",names(obj.temp))]
+			}
+			obj.temp <- obj.temp[!is.na(obj.temp[,by])&nchar(as.character(obj.temp[,by]))>0,]
+			# put sheet name at end
+			names(obj.temp)[which(names(obj.temp) != by)] <- paste(names(obj.temp)[which(names(obj.temp) != by)], " - ",snames[sheetIndices[s]],sep="")
+			obj <- merge (obj, obj.temp, by=by, all = TRUE, suffixes=c(paste(" - ",snames[sheetIndices[1]],sep=""), paste(" - ",snames[sheetIndices[s]],sep="")))
+		}
+	}
+
+	if (is.null(filename.out)){
+		filename.out <- paste(sub("(.*)?\\..*","\\1",filename),"-merged",sub("(.*)?(\\..*)","\\2",filename),sep="")
+	}
+	write.xlsx(obj, filename.out,sheetName="Merged", append=append, row.names=FALSE)
+}
+# example
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\FINAL_Thermo-2013-pre-post-crater-background.xlsx", by = "Wise.Id.1", sheetIndices =  1:3)
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Ocean bottom trawling\\Spring2014\\Excel-scored\\MASTER_OBT-Spring2014-pre-post-scored.xlsx", by = "Wise.Id.1", sheetIndices =  1:4)
+mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Webb_Mitosis_KIvST.xlsx", by = "Wise.Id.1", sheetIndices =  1:2)
+
+## Will score a data file stored
+## TODO, expand type of input files
+scoreFileWithCRATER <- function (filename, itemId, response.index = 3, strip.pattern="\\[Response\\]=", filename.out=NULL, append=FALSE, verbose=FALSE, ...){
+	library(RCurl)
+	filetype <- sub("(.*)?\\.(.*)","\\2",filename)
+	if (is.null(filename.out)){
+		filename.out <- paste(sub("(.*)?\\..*","\\1",filename),"-wCR",sub("(.*)?(\\..*)","\\2",filename),sep="")
+	}
+	if (filetype == "csv"){
+		obj <- read.csv(filename, stringsAsFactors=FALSE, ...)
+	} else {
+		stop(paste(filetype, "is not supported"))
+	}
+
+	i <- 1
+	strikes <- 5
+	vals <- numeric()
+	while (i <= nrow(obj) && strikes >= 1){
+		r <- obj[i,response.index]
+		tryCatch(
+			{
+			val <- scoreResponseWithCRATER(r,itemId, strip.pattern, verbose)
+			vals <- c(vals, val)
+			i = i + 1
+			}, 
+			error = function(e){
+				print(paste("error on", i))
+				strikes <- strikes - 1
+				return(NULL)
+			}
+		)
+	}
+	if (length(vals) == nrow(obj)){
+		obj[,paste(names(obj)[response.index],"CRater",sep="-")] <- vals
+		if (filetype == "csv"){
+			write.csv(obj, filename.out)
+		}
+
+		print(paste(filename.out))
+	} else {
+		stop("Didn't work, stopped at" , i)
+	}
+}
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\How does heat energy move- [A]-6700-custom-all-student-work.csv", itemId="SPOON-II", response.index=40, strip.pattern="\\[Response\\]=", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\How does heat energy move- [P]-6701-custom-all-student-work.csv", itemId="SPOON-II", response.index=40, strip.pattern="\\[Response\\]=", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\SchrieberWork-GreenRoof.csv", itemId="GREENROOF-II", response.index=15, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\SchrieberWork-TadPole.csv", itemId="Tadpole", response.index=14, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Nourse_Photo&CellResp.csv", itemId="GREENROOF-II", response.index=14, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Nourse_Photo&CellResp-wCR.csv", itemId="Tadpole", response.index=16, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]", verbose=TRUE)
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\GraphingInventory\\Fall2014\\CGI_VijayItem.csv", "Vijay", response.index = 4, strip.pattern="")
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Webb_Tadpole.csv", itemId="Tadpole", response.index=14, strip.pattern="")
+#scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Webb_GreenRoof.csv", itemId="GREENROOF-II", response.index=14, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]")
+scoreFileWithCRATER(filename="C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\DL_GreenRoof.csv", itemId="GREENROOF-II", response.index=6, strip.pattern="Student Response: |, Check Answer: \\[\\], CRater Score: \\[\\], CRater Feedback: \\[\\]")
 
 ###
 #   In some cases we have used an open response to accomodate multiple choice
@@ -21,7 +139,7 @@
 #   homeX
 #   Returns "school, home"
 ###
-parseOpenResponseForChecks = function(strarr, mark, labels, header = NULL, markRightOfLabel = TRUE){
+parseOpenResponseForChecks <- function(strarr, mark, labels, header = NULL, markRightOfLabel = TRUE){
 	strarr.out = character();
 	strarr = sub(header, "", strarr)
 	for (str in strarr){
@@ -56,7 +174,24 @@ parseOpenResponseForChecks = function(strarr, mark, labels, header = NULL, markR
 }
 
 # report cohen's d, m, sd
-my.t.test <- function(x, y=NULL, paired=FALSE, ...){library(lsr);print(t.test(x=x,y=y,paired=paired,...));if(!is.null(y)){if(paired){print(paste("cohen's d:",cohensD(x=x,y=y,method="paired")))}else{print(paste("cohen's d:",cohensD(x=x,y=y)))}}else{print(paste("cohen's d:",cohensD(x=x,method="paired")))};print(paste("x mean:",mean(x,na.rm=TRUE)));print(paste("x sd:", sd(x,na.rm=TRUE)));if(!is.null(y))print(paste("y mean:", mean(y,na.rm=TRUE)));if(!is.null(y))print(paste("y sd:", sd(y,na.rm=TRUE)))}
+my.t.test <- function(x, y=NULL, paired=FALSE, ...){
+	library(lsr);
+	library(plotrix)
+	print(t.test(x=x,y=y,paired=paired,...))
+	if(!is.null(y)){
+		if(paired){
+			print(paste("cohen's d:",round(cohensD(x=x,y=y,method="paired"),3)))
+		} else {
+			print(paste("cohen's d:",round(cohensD(x=x,y=y),3)))
+		}
+	} else {
+		print(paste("cohen's d:",round(cohensD(x=x,method="paired"),3)))
+	}
+	print(paste("x: mean: ",round(mean(x,na.rm=TRUE),3), " sd: ", round(sd(x,na.rm=TRUE),3), " se: ", round(std.error(x,na.rm=TRUE),3)))
+	if (!is.null(y)){
+		print(paste("y: mean: ",round(mean(y,na.rm=TRUE),3), " sd: ", round(sd(y,na.rm=TRUE),3), " se: ", round(std.error(y,na.rm=TRUE),3)))
+	} 
+}
 
 ### my.kappa.files will load columns of data from files and use cohen's kappa to find inter-rater agreement
 ### If files, sheetnames, or colnames contain more than one element, columns will be stacked vertically
@@ -104,19 +239,33 @@ my.kappa.files <- function (r1.files, r2.files, r1.sheetIndices, r2.sheetIndices
 }
 
 # For some reason the regular regression table doesn't show beta values, do that here
-regressionTableWithBeta <- function(fit, round.digits = 2){
+my.summary.lm <- function(fit, round.digits = 2){
 	library(QuantPsyc)
 	betas = c(NA, lm.beta(fit))
 	tbl = summary(fit)$coef
+	if (nrow(tbl) == 1){
+		one.row <- TRUE
+		tbl <- rbind(tbl, c(NA, NA, NA, 0))
+	} else {
+		one.row <- FALSE
+	}
 	
 	tbl.out = as.data.frame(cbind(cbind(tbl[,1:2], Beta=betas), tbl[,3:4]))
-	tbl.out$Estimate = round(tbl.out$Estimate, round.digits)
-	tbl.out[,"Std. Error"] = round(tbl.out[,"Std. Error"], round.digits)
-	tbl.out$Beta = round(tbl.out$Beta, round.digits)
-	tbl.out[,"t value"] = round(tbl.out[,"t value"], round.digits)
-	p = tbl.out[,"Pr(>|t|)"]
-	tbl.out[p < 10^-(round.digits),"Pr(>|t|)"] = round(tbl.out[p < 10^-(round.digits),"Pr(>|t|)"], digits=round.digits+1)
-	tbl.out[p >= 10^-(round.digits),"Pr(>|t|)"] = round(tbl.out[p >= 10^-(round.digits),"Pr(>|t|)"], digits=round.digits)
+	Estimate.index <- which(colnames(tbl.out) == "Estimate")
+	Std.Error.index <- which(colnames(tbl.out) == "Std. Error")
+	Beta.index <- which(colnames(tbl.out) == "Beta")
+	t.value.index <- which(colnames(tbl.out) == "t value")
+	Pr.t.index <- which(colnames(tbl.out) == "Pr(>|t|)")
+	
+	tbl.out[,Estimate.index] = round(tbl.out[,Estimate.index], round.digits)
+	tbl.out[,Std.Error.index] = round(tbl.out[,Std.Error.index], round.digits)
+	tbl.out[,Beta.index] = round(tbl.out[,Beta.index], round.digits)
+	tbl.out[,t.value.index] = round(tbl.out[,t.value.index], round.digits)
+	names(tbl.out)[t.value.index] <- paste("t value [",summary(fit)$df[2],"]",sep="")
+	p = tbl.out[,Pr.t.index]
+	tbl.out[p < 10^-(round.digits),Pr.t.index] = round(tbl.out[p < 10^-(round.digits),Pr.t.index], digits=round.digits+1)
+	tbl.out[p >= 10^-(round.digits),Pr.t.index] = round(tbl.out[p >= 10^-(round.digits),Pr.t.index], digits=round.digits)
+	if (one.row) tbl.out <- tbl.out[-2,]
 	return (tbl.out)
 }
 

@@ -23,6 +23,7 @@
 # These functions are primarilly used for opening and parsing data in preparation for analysis
 
 rbind.wisedata.frame <- function(obj1, obj2){
+	library(plyr)
 	obj = rbind.fill (obj1, obj2)
 	# reindex
 	obj$Index = 1:nrow(obj)
@@ -56,6 +57,10 @@ read.xlsx.wiseDir <- function(dir, sheetIndices = 1:1000, fileIndices = NULL, hi
 	scounts.mat <- do.call("rbind", apply(scounts, 1, function(row){return(data.frame(filename=row[1],sheet=1:row[2], row.names=NULL, stringsAsFactors=FALSE))}))
 	if (high.memory) df <- do.call("rbind.fill", mapply(function(f,x){return(read.xlsx2(f, sheetIndex = x, colClasses=colClasses, stringsAsFactors = FALSE))},scounts.mat[,1],scounts.mat[,2]))
 	else df <- do.call("rbind.fill", mapply(function(f,x){return(read.xlsx(f, sheetIndex = x, colClasses=colClasses, stringsAsFactors = FALSE))},scounts.mat[,1],scounts.mat[,2]))
+	
+	# replace imported NA with ""
+	df[,apply(df,2,class)=="character"] <-  as.data.frame(apply(df[,apply(df,2,class)=="character"],2,function(x){x[is.na(x)]<-"";return(x)}),stringsAsFactors=FALSE)
+
 	# Make all Student work and NA columns into Student.Work.Part.X
 	swindices <- grep("Student\\.Work|NA\\.", names(df))
 	names(df)[swindices] <- paste("Student.Work.Part",1:length(swindices),sep=".") 
@@ -70,11 +75,14 @@ read.xlsx.wiseDir <- function(dir, sheetIndices = 1:1000, fileIndices = NULL, hi
 	names(df) <- gsub("..if.applicable.", "", names(df));
 	names(df) <- gsub("\\.\\.", "\\.", names(df));
 	names(df) <- gsub("\\.$", "", names(df));
+
 	# one row per step work id
 	df <- collapseMultipleRevisions(df)
 	df <- subset(df, !is.na(Workgroup.Id))
 	# create an index
 	df$Index <- 1:nrow(df)
+	## in new versions the visit and revision time spent are distinguished, create another column for historical purposes
+	df$Time.Spent.Seconds <- df$Visit.Time.Spent.Seconds
 	
 	# create a Step.Num column
 	df$Step.Title[is.na(df$Step.Title)] <- "0 Unknown"
@@ -119,8 +127,14 @@ read.xlsx.wise <- function(filename, sheetIndices = 1:1, sheetName=NULL, charact
 	} else{
 		df <- do.call("rbind.fill", lapply(sheetIndices, function(x){return(read.xlsx(filename, sheetIndex = x, colClasses=colClasses, stringsAsFactors = FALSE))}))
 	}
+	# replace imported NA with ""
+	df[,apply(df,2,class)=="character"] <-  as.data.frame(apply(df[,apply(df,2,class)=="character"],2,function(x){x[is.na(x)]<-"";return(x)}),stringsAsFactors=FALSE)
+
+	swindices <- grep("Student\\.Work|NA\\.", names(df))
+	names(df)[swindices] <- paste("Student.Work.Part",1:length(swindices),sep=".") 
 	# make sure there aren't any weird columns (with an NA)
 	df <- df[,!grepl("NA\\.",names(df))]
+
 	# make sure there aren't any empty rows - i.e. those without a wise id
 	df <- subset(df, !is.nan(as.numeric(as.character(Wise.Id.1))))
 	# create an index
@@ -130,6 +144,8 @@ read.xlsx.wise <- function(filename, sheetIndices = 1:1, sheetName=NULL, charact
 	names(df) <- gsub("\\.\\.", "\\.", names(df));
 	names(df) <- gsub("\\.$", "", names(df));
 	# one row per step work id
+	#print(subset(df,Step.Work.Id==7943080))
+
 	df <- collapseMultipleRevisions(df)
 	# create a Step.Num column
 	df$Step.Num <- getStepNum(df)
@@ -156,15 +172,24 @@ read.xlsx.wise <- function(filename, sheetIndices = 1:1, sheetName=NULL, charact
 	class(df) = c("wisedata.frame",class(df));
 	return(df)
 }
+#test <- read.xlsx.wise("C:\\Users\\Jonathan Vitale\\Documents\\Data\\WISE\\GraphingStories\\fall2014\\Excel-test\\TestSheet.xlsx")
+#print(subset(test,Step.Work.Id==7943080))
+
 #wise = read.xlsx.wiseDir(excelDirectory, Student.Work.Count = 7,perl="C:\\perl64\\bin\\perl.exe", DEBUG=TRUE);
 #wise = read.xlsx.wiseDir(excelDirectory, Student.Work.Count = 4, Parent.Project.Id.pretest=Parent.Project.Id.pretest); 
 
 ### In the current version of the downloader multiple responses in the single step are 
 ### separated into multiple rows.  This will place each revision in a separate Response #:{}
-collapseMultipleRevisions <- function (df, include.Visit.Revision.Count = TRUE){
+collapseMultipleRevisions <- function (df, include.Visit.Revision.Count = TRUE, response.number.columns=c("Student\\.Work","Revision\\.Time", "Teacher\\.Score\\.Timestamp", "Teacher\\.Score", "Teacher.Comment\\.Timestamp", "Teacher\\.Comment", "Auto\\.Score", "Auto\\.Feedback")){
 	#re-affirm integrity of Index
 	df$Index = 1:nrow(df)
-	swindices <- grep("Student\\.Work", names(df))
+	swindices <- numeric()
+	for (rnc in response.number.columns){
+		swindices <- union(swindices, grep(rnc, names(df)))
+	}
+	# get the first index of actual student work
+	swindex <- grep("Student\\.Work", names(df))
+	print(swindex)
 	df.out <- df
 	df.out <- subset(df, !duplicated(Step.Work.Id, fromLast=TRUE))
 	# empty student work out
@@ -179,83 +204,120 @@ collapseMultipleRevisions <- function (df, include.Visit.Revision.Count = TRUE){
 		df.rev <- subset(df.in, !dups)
 		# place "Response #X: {...} ", if it isn't 
 		for (swi in swindices){
-			df.rev.u <- subset(df.rev,nchar(df.rev[,swi])>0&!grepl("Response #",df.rev[,swi]))
+			# only take rows with some student work
+			if (length(swindex) > 1){
+				df.rev.u <- subset(df.rev,apply(df.rev[,swindex],1,function(x)sum(nchar(x)))>0&!grepl("Response #",df.rev[,swindex[1]]))
+			} else {
+				df.rev.u <- subset(df.rev,nchar(df.rev[,swindex])>0&!is.na(df.rev[,swindex])&!grepl("Response #",df.rev[,swindex]))	
+			}
 			m <- match(df.rev$Index,df.rev.u$Index)
 			df.rev.u2 <- df.rev
 			df.rev.u2[!is.na(m), swi] <- paste("Response #", rev.num, ": {", df.rev.u[m[!is.na(m)],swi], "}",sep="")
 			# now place in out
-			df.rev.u2 <- subset(df.rev.u2, nchar(df.rev.u2[,swi])>0)
+			if (length(swindex) > 1){
+				df.rev.u2 <- subset(df.rev.u2, apply(df.rev.u2[,swindex],1,function(x)sum(nchar(x)))>0)
+			} else {	
+				df.rev.u2 <- subset(df.rev.u2, nchar(df.rev.u2[,swindex])>0&!is.na(df.rev.u2[,swindex]))			
+			}
 			m <- match(df.out$Step.Work.Id,df.rev.u2$Step.Work.Id)
 			if (sum(!is.na(m)) > 0){
 				df.out[!is.na(m),swi] <- paste(df.out[!is.na(m),swi],df.rev.u2[m[!is.na(m)],swi])
 				if(include.Visit.Revision.Count) df.out[!is.na(m),]$Visit.Revision.Count <- rev.num
 			}
 		}
+
 		rev.num <- rev.num + 1
 		dups <- duplicated(df.in$Step.Work.Id)
-		if (length(dups) == 0 || rev.num > 100) break
+		if (sum(dups, na.rm=TRUE) == 0 || rev.num > 100) break
 		df.in <- subset(df.in, dups)
+		dups <- duplicated(df.in$Step.Work.Id)
 	}
 	return(df.out)
 }
 
-## Given a wisedata.frame will iterate through all rows looking for multiple student responses that are concatatenated into a single column
-## if expandToColumn is TRUE, then each response will be placed in a new Student.Work.Column, if we run out of columns the entire data frame will be expanded
-## if expandToColumn is FALSE, then a row will be repeated for each response
-## regexp.split is the regular expression used to split responses
-expandMultipleResponses <- function (df, expandToColumn = TRUE, regexp.split=" ?Response #[0-9]+: "){
+### Update multiple responses will insert the format of Response # X: {} around all appropriate columns to match the pattern in Student.Work.Part.1
+updateMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
 	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
-	returndf = df[0,];
-	if (expandToColumn){
-		for (i in 1:nrow(df)){
-			row = df[i,];
-			indices =  grep("Student.Work",names(df))
-			indices = indices[which(!is.na(df[i,indices])&nchar(df[i,indices])>1)]
-			## make sure that only one column has student work
-			if (length(indices) == 1){
-				index = indices[1];	
-				sw = row[1, index];
-				responses = strsplit(sw, regexp.split)[[1]]
-				### remove blanks
-				responses = responses[nchar(responses) > 0];
-				### if we have more responses than student work columns, start adding columns
-				if (length(responses) > length(indices)){
-					for (j in 1:(length(responses) - length(indices))){
-						colname  = paste("Student.Work.Part.", j + length(indices),sep=""); 
-						### add new column in both returndf and row
-						row = cbind(row,  newcol = rep("",nrow(row)));
-						names(row)[which(names(row)=="newcol")] = colname;
-						returndf = cbind(returndf,  newcol = rep("",nrow(returndf)));
-						names(returndf)[which(names(returndf)=="newcol")] = colname;
-						df = cbind(df,  newcol = rep("",nrow(df)));
-						names(df)[which(names(df)=="newcol")] = colname;
-					}
-					## get new indices
-					indices =  grep("Student.Work",names(row))
-				}
-				## place each response in a new column of student work
-				for (j in 1:length(responses)){
-					r = responses[j];
-					levels(row[,indices[j]]) = c(levels(row[,indices[j]]), r)
-					row[1,indices[j]] = r;
-				}
-			}
-			returndf = rbind(returndf, row);
+	# get just those columns that have the Response # indicator
+	indices <- as.numeric(which(apply(df, 2, function(c){return(length(grep(regexp.split,c))>0)})))
+	#print(names(df[,indices]))
+	if (length(indices) > 0){
+		#grep("Student\\.Work",names(df))
+		# make sure that the number of responses in student work part 1 matches # of responses in other columsn
+		nresponses.1 <- sapply(strsplit(df$Student.Work.Part.1, regexp.split),function(x)return(max(length(x)-1,0)))
+		work <- sapply(df[,indices], as.character)
+		nresponses <- apply(work,c(1,2),function(x){y<-strsplit(x, regexp.split)[[1]];return(max(0,length(y)-1))})
+		nresponses.toadd <- nresponses.1 - nresponses
+		for (ci in 1:ncol(work)){
+			work.col <- work[nresponses.toadd[,ci]>0,ci]
+			nresponses.toadd.col <- nresponses.toadd[nresponses.toadd[,ci]>0,ci]
+			nresponses.toadd.list <- lapply(nresponses.toadd.col, function(n)seq(n))
+			newcol <- sapply(seq_along(work.col), function(i){
+				y<-paste(" Response #",nresponses.toadd.list[[i]],work.col[i],sep="",collapse=paste(": {",work.col[i],"}",sep=""));
+				y<-paste(y,": {",work.col[i],"} ",sep="");
+				return(y)
+			})
+			# print(paste(length(newcol),ci,newcol))
+			if (length(newcol)>0) work[nresponses.toadd[,ci]>0,ci] <- newcol
 		}
-		return (returndf);
-	} else {
-		indices =  grep("Student\\.Work",names(df))
+		df[,indices] <- work
+		return (df);
+	}
+	return (NULL)
+}
+#wise2 <- updateMultipleResponses(wise)
+
+## Given a wisedata.frame will iterate through all rows looking for multiple student responses that are concatatenated into a single column
+## a row will be repeated for each response
+## regexp.split is the regular expression used to split responses
+expandMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
+	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
+	# get just those columns that have the Response # indicator
+	indices <- as.numeric(which(apply(df, 2, function(c){return(length(grep(regexp.split,c))>0)})))
+	print(names(df[,indices]))
+	if (length(indices) > 0){
+		if (nrow(subset(df,grepl("Response #1:",Student.Work.Part.1))) != nrow(subset(df,grepl("Response #1:",Student.Work.Part.2)))){
+			df <- updateMultipleResponses(df, regexp.split = regexp.split)
+		}
 		# make sure every student work part 1 has some value
 		max.rev <- 1
-		Student.Work.expanded <- do.call("cbind",lapply(indices,function(i){df[df[,i]=="",i] <- " "; u <- unlist(strsplit(df[,i],regexp.split)); u<-u[nchar(u)>0]; u[u==" "]<-""; if(length(u)>max.rev) max.rev <<- length(u); if(length(u)<max.rev) u<-c(u,rep("",max.rev-length(u))); return(u)}))
+		Student.Work.expanded <- do.call("cbind", lapply(indices,function(i){
+			#print(names(df)[i])
+			df[!is.na(df[,i])&df[,i]=="",i] <- " "; 
+			u <- unlist(strsplit(df[,i],regexp.split)); 
+			u <- u[nchar(u)>0]; 
+			u[u==" "] <- "";
+			u <- gsub("^ *\\{","",u)
+			u <- gsub("\\} *$","",u)
+			if(length(u)>max.rev) max.rev <<- length(u); 
+			if(length(u)<max.rev) u <-c(u,rep("",max.rev-length(u))); 
+			#print(length(u))
+			return(u)
+		}))
+		# which rows were expanded
+		expanded <- unlist(lapply(strsplit(df[,indices[1]],regexp.split),function(l)return(length(l))))
+		expanded[expanded > 1] <- expanded[expanded > 1] - 1
+		expanded[expanded == 0] <- 1
 		# expand df by repeating rows
-		returndf = df[rep(seq_len(nrow(df)),nrow(Student.Work.expanded)),]
+		returndf <- df[rep(seq_len(nrow(df)),expanded),]
+		# convert columns if actually numeric
+		Student.Work.expanded.num <- apply (Student.Work.expanded, 2, function(x){
+			if (length(suppressWarnings(as.numeric(unique(x))))+1 >= length(unique(x))){
+				return (suppressWarnings(as.numeric(x)))
+			} else {
+				return (x)
+			}
+		})
 		# substitue expanded student work for repeated student work
-		returndf[,indices] = Student.Work.expanded
+		print(apply(Student.Work.expanded.num, 2, class))
+		returndf[,indices] <- Student.Work.expanded.num
 		
-		return (returndf);
+		return (returndf)
+	} else {
+		return (df)
 	}
 }
+wise.exp <- expandMultipleResponses(wise)
 
 # expand each workgroup into the number of participants,
 # If one Wise User, then row remains the same
@@ -304,7 +366,6 @@ refactor <- function(df, colNames=NULL){
 	}
 	return (df)
 }
-
 
 ### import file to gather column values
 readForColValues <- function (targetDF, sourceFile, sourceColNames.except = NULL, sourceColNames = NULL, targetIdentifier="Step.Work.Id", sourceIdentifier="Step.Work.Id", includes.formulas = TRUE, ...){
@@ -357,7 +418,6 @@ readForColValues.prepost <- function (targetDF, sourceFile, sourceColNames.excep
 #	In the case where there are more than one files for a given student this function can be used to 
 #	transfer the values in one file to the corresponding row in a target dataframe.
 #
-
 transferColValues <- function (targetDF, sourceDF, targetColNames="Student.Work.Part.1", sourceColNames="Student.Work", targetIdentifier="Step.Work.Id", sourceIdentifier="Step.Work.Id"){
 	if(nrow(targetDF)!=length(unique(targetDF$Index))) stop("Re-index the target data frame")
 	sindices <- sourceDF[,sourceIdentifier] %in% targetDF[,targetIdentifier]
@@ -366,9 +426,7 @@ transferColValues <- function (targetDF, sourceDF, targetColNames="Student.Work.
 	tindices <- targetDF[,targetIdentifier] %in% sourceDF[,sourceIdentifier]
 	sIdentity <- as.character(sourceDF[,sourceIdentifier])
 	tIdentity <- as.character(targetDF[tindices,targetIdentifier])
-	print(paste(sourceIdentifier, targetIdentifier))
-	print(cbind(sIdentity,tIdentity))
-
+	
 	# Iterate through
 	for (s in 1:length(sourceColNames)){
 		sourceColName <- sourceColNames[s]
@@ -385,16 +443,14 @@ transferColValues <- function (targetDF, sourceDF, targetColNames="Student.Work.
 				targetDF[,targetColName] = rep("", nrow(targetDF))	
 			}
 		} 
-		if (targetColName == "KI.Score") print(cbind(targetDF[tindices,c(targetIdentifier,targetColName)], sourceDF[match(as.character(tIdentity),sIdentity),c(sourceIdentifier, sourceColName)]))
+		#if (targetColName == "KI.Score") print(cbind(targetDF[tindices,c(targetIdentifier,targetColName)], sourceDF[match(as.character(tIdentity),sIdentity),c(sourceIdentifier, sourceColName)]))
 		# replace only those whose identity in source can be found in target, careful of ordering!
 		targetDF[tindices,targetColName] <-sourceDF[match(as.character(tIdentity),sIdentity),sourceColName]
 	}
 	return (targetDF);
 }
-gcc.AO <- readForColValues (gcc.AO, paste(dir.scored,"GCC-Spring2014-prepost.xlsx",sep=""), sourceColNames.except = names(prepost.out.AO), sheetIndex=11)
-# 10884      7289147        5      7289444        5
+wise <- readForColValues.prepost (wise, paste(dir.scored,"GraphingStories-embedded-Fall2014-jv.xlsx",sep=""), postfixes = c("\\.Initial","\\.Final"), sourceColNames.except = names(wise.vijay.explain), sheetIndex=1)
 
-subset(gcc.AO, Step.Work.Id==7289147)$KI.Score #should be 4
 ### FEATURE FUNCTIONS - intended to add new columns to wise data frame providing more information:
 
 # In a wise data frame all steps should have Ids.
@@ -429,6 +485,11 @@ assignStepId <- function (df, prefix, Parent.Project.Ids, Project.Ids, Run.Ids, 
 		df[(df$Run.Id %in% Run.Ids) & (floor(as.numeric(as.character(df$Step.Num))) %in% Activity.Nums), paste("Is",prefix,sep=".")] = TRUE
 		df$Step.Id = as.factor(df$Step.Id)
 	} 
+	df$Step.Id = as.factor(gsub("(\\.|\\?|!)$","",as.character(df$Step.Id)))
+	df$Step.Id = as.factor(gsub(":\\.|-",".",as.character(df$Step.Id)))
+	df$Step.Id = as.factor(gsub(",","",as.character(df$Step.Id)))
+	df$Step.Id = as.factor(gsub("'","",as.character(df$Step.Id)))
+	df$Step.Id = as.factor(gsub("\\(|\\)","",as.character(df$Step.Id)))
 	return (df)
 }
 
@@ -699,7 +760,7 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 	odf = aggregate(subset(df,TRUE,by_index), by, FUN = first, simplify=FALSE)[,c(1,length(by_index))];
 	names(odf) = b
 	### seb2lect.first are those items that we just want the top value
-	if (!missing(select.first)){
+	if (!missing(select.first)  && !is.null(select.first)){
 		nl = as.list(seq_along(x));
 		names(nl) = names(x);
 		vars = eval(substitute(select.first), nl, parent.frame());
@@ -722,25 +783,30 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 		} else if (class(vars)[1] != "integer" && class(vars)[1] != "numeric"){
 			vars = which(names(df) %in% vars)
 		}
+		# we'll be using and expanded df to account for multiple revisions
+		df.exp <- expandMultipleResponses(df)		
+
 		for (fun in FUNS.numerical){			
 			## special for median split
 			if (fun == "first"){
-				adf = subset(df, URev.Num==1.000, c(by_index, vars))
+				adf = subset(df.exp, URev.Num==1.000, c(by_index, vars))
 				adf = subset(adf, !duplicated(adf[,b]))
 				adf = merge(subset(odf,TRUE,b), adf, all.x=TRUE, all.y=FALSE, suffixes=c("",""))
 			} else if (fun == "last"){
-				adf = subset(df, IURev.Num==0.000, c(by_index, vars))
-				adf = subset(adf, !duplicated(adf[,b]))
+				adf = subset(df.exp, IURev.Num==0.000, c(by_index, vars))
+				adf = subset(adf, !duplicated(adf[,b], fromLast=TRUE))
 				adf = merge(subset(odf,TRUE,b), adf, all.x=TRUE, all.y=FALSE, suffixes=c("",""))
 			} else if (fun == "first.to.last"){
-				adf.f = subset(df, URev.Num==1.000, c(by_index, vars))
+				adf.f = subset(df.exp, URev.Num==1.000, c(by_index, vars))
 				adf.f = subset(adf.f, !duplicated(adf.f[,b]))
-				adf = subset(df, IURev.Num==0.000, c(by_index, vars))
-				adf = subset(adf, !duplicated(adf[,b]))
+				adf = subset(df.exp, IURev.Num==0.000, c(by_index, vars))
+				adf = subset(adf, !duplicated(adf[,b], fromLast=TRUE))
 				adf[2:ncol(adf)] = adf[2:ncol(adf)] - adf.f[2:ncol(adf.f)] 
 				adf = merge(subset(odf,TRUE,b), adf, all.x=TRUE, all.y=FALSE, suffixes=c("",""))
 			} else {
-				df.select.numerical = df[,c(vars)];
+				df.select.numerical = df.exp[,vars];
+				print (names(df.select.numerical))
+				print (fun)
 				adf = aggregate(df.select.numerical, by, FUN = fun, na.rm = TRUE, simplify=TRUE);
 			}
 			## if there is more than one numerical function attach the name of the funciton
@@ -792,6 +858,7 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 	class(odf) = c("aggwisedata.frame", "wisedata.frame", "data.frame");
 	return(odf);
 }
+magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last"))
 
 aggregate.aggwisedata.frame <- function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x; class(df) = c("wisedata.frame", "data.frame");
@@ -834,9 +901,63 @@ subset.wisedata.frame <- function(x, subset, select, drop = FALSE, ...){
 	x[r, vars, drop = drop]
 }
 
+### This function will return all steps between the first instance of Step.Id.start and last instance of Step.Id.end
+###   for each workgroup. Should run fast - no looping (mostly).
+subset.StepsBetween <- function (obj, Step.Id.start, Step.Id.stop, inclusive=FALSE){
+	d <- obj[,c("Workgroup.Id","Step.Id")]
+	start <- Step.Id.start
+	stop <- Step.Id.stop
+	d[,"start"] <- sapply(obj$Step.Id,function(x)if(x==start){return(1)}else{return(0)})
+	d[,"stop"] <- sapply(obj$Step.Id,function(x)if(x==stop){return(-1)}else{return(0)})
+	# remove repeat starts and stops
+	d[,"start"] <- as.numeric(!duplicated(d[,c("Workgroup.Id","start")])&d$start==1)
+	d[,"stop"] <- -1*as.numeric(!duplicated(d[,c("Workgroup.Id","stop")],fromLast=TRUE)&d$stop==-1)
+	if (inclusive){
+		# shift "stop" down one
+		d[,"stop"] <- c(0,d$stop[1:(length(d$stop)-1)])
+	} else {
+		# shift "start" down one
+		d[,"start"] <- c(0,d$start[1:(length(d$start)-1)])
+	}
+	
+	d[,"s"] <- d$start + d$stop
+	#d$up <- 1-as.numeric(duplicated(d[,c("Workgroup.Id","start")])&d$s==1)
+	#d$down <- 1-as.numeric(duplicated(d[,c("Workgroup.Id","stop")],fromLast=TRUE)&d$s==-1)
+	#d$u <- d$up + d$down - 1
+	d$s2 <- d$s #*d$u
+	# who didn't reach stop?
+	ended <- unique(d$Workgroup.Id[d$s2==-1])
+	noend <- unique(d$Workgroup.Id[!(d$Workgroup.Id %in% ended)])
+	# cheat a bit, find last row of unended workgroups (didn't reach stop), make sure that
+	# the following row indices that there should be a stoppage
+	for (wg in noend){
+		index <- max(which(d$Workgroup.Id == wg))
+		if (index + 1 < nrow(d)){
+			d$s2[index + 1] <- d$s2[index + 1] - 1
+		}
+	}
+	# who didn't start?
+	started <- unique(d$Workgroup.Id[d$s2==1])
+	notstarted <- unique(d$Workgroup.Id[!(d$Workgroup.Id %in% started)])
+	# cheat a bit, find last row of unended workgroups (didn't reach stop), make sure that
+	# the following row indices that there should be a stoppage
+	for (wg in notstarted){
+		index <- max(which(d$Workgroup.Id == wg))
+		if (index - 1 > 0){
+			d$s2[index - 1] <- d$s2[index - 1] + 1
+		}
+	}
+
+	d$between <- cumsum(d$s2)
+	#print(subset(d, Workgroup.Id==158892))
+
+	return (obj[as.logical(d$between),])
+}
+
+
 ### For each workgroup subsets to only those steps between the first revision (unique if given) of a step and the last revision of a step
 ### We can start from the first instance of a step or the last instance of a step (start.first, start.last)
-subset.Step.Range <- function (df, Step.Num.NoBranch.first, Step.Num.NoBranch.last, Step.Id.first = NULL, Step.Id.last = NULL, start.first=TRUE, start.last=FALSE, unique.first=FALSE, unique.last=TRUE){
+subset.StepRange <- function (df, Step.Num.NoBranch.first, Step.Num.NoBranch.last, Step.Id.first = NULL, Step.Id.last = NULL, start.first=TRUE, start.last=FALSE, unique.first=FALSE, unique.last=TRUE){
 	library(plyr)
 	if (missing(Step.Num.NoBranch.first) && !is.null(Step.Id.first) && !is.null(Step.Id.last)){
 		Step.Num.NoBranch.first <- as.numeric(as.character(unique(subset(df, Step.Id==Step.Id.first)$Step.Num.NoBranch)[1]))
@@ -874,25 +995,18 @@ subset.Step.Range <- function (df, Step.Num.NoBranch.first, Step.Num.NoBranch.la
 			}
 		}
 		df.temp <- subset(df, Index>=index.first&Index<=index.last&Workgroup.Id==wg)	
-		if (wg == 106406){
-			print(paste("Workgroup", wg))
-			print(subset(df, Workgroup.Id==wg,c(Step.Id, Index, Rev.Num, IURev.Num)))
-			print(paste(Step.Num.NoBranch.first, Step.Num.NoBranch.last))
-			print(paste(index.first, index.last))
-			print(nrow(df.temp))
-			print(unique(df.temp$Step.Id))
-		}
 		if (nrow(df.temp) > 0) df.out <- rbind(df.out, df.temp)
 	}
 	return (df.out)
 }
-wise.between.revision <- subset.Step.Range (subset(gcc, Is.Unit==TRUE), Step.Id.first=stid, Step.Id.last=stid, unique.first=FALSE, unique.last=TRUE, start.first=TRUE, start.last=FALSE)
+#wise.between.revision <- subset.Step.Range (subset(gcc, Is.Unit==TRUE), Step.Id.first=stid, Step.Id.last=stid, unique.first=FALSE, unique.last=TRUE, start.first=TRUE, start.last=FALSE)
 
-group <- subset(gcc, Workgroup.Id==wgid)
-group.between.revision <- subset.Step.Range (group, Step.Id.first=stid, Step.Id.last=stid, unique.first=FALSE, unique.last=TRUE, start.first=TRUE, start.last=FALSE)
-group.between.revision <- subset(group.between.revision, Step.Id %in% vstid)
-gmagna <- subset(magna, Workgroup.Id==wgid)[,1:5]
-merge(gmagna, aggregate(group.between.revision, by=list(Workgroup.Id)), by="Workgroup.Id", all.x=TRUE, all.y=FALSE)$Collapse.Count
+#group <- subset(gcc, Workgroup.Id==wgid)
+#group.between.revision <- subset.Step.Range (group, Step.Id.first=stid, Step.Id.last=stid, unique.first=FALSE, unique.last=TRUE, start.first=TRUE, start.last=FALSE)
+#group.between.revision <- subset(group.between.revision, Step.Id %in% vstid)
+
+#gmagna <- subset(magna, Workgroup.Id==wgid)[,1:5]
+#merge(gmagna, aggregate(group.between.revision, by=list(Workgroup.Id)), by="Workgroup.Id", all.x=TRUE, all.y=FALSE)$Collapse.Count
 ############### PRIVATE FUNCTIONS ##############################
 # These are mainly used by the functions above, you can use if you'd like
 
@@ -982,8 +1096,7 @@ getColClasses.read <- function (colNames){
 	colClasses = character();
 	for (i in 1:length(cnames))
 	{
-		colName = cnames[i];
-		
+		colName = cnames[i];	
 		if (
 			grepl("time\\.spent",tolower(colName))[1] ||
 			grepl("score",tolower(colName))[1] ||
@@ -1013,7 +1126,7 @@ getColClasses.read <- function (colNames){
 ### Goes through a series of column names and converts to a column class.
 getColClasses.final <- function (cnames){	
 	### clean up names a bit (remove .., . at end, "if applicable")
-	cnames= gsub("..if.applicable.", "", cnames);
+	cnames = gsub("..if.applicable.", "", cnames);
 	cnames = gsub("\\.\\.", "\\.", cnames);
 	cnames = gsub("\\.$", "", cnames);
 
@@ -1042,7 +1155,8 @@ getColClasses.final <- function (cnames){
 			colName == "Node.Type" ||
 			colName == "Teacher.Login" ||
 			colName == "Run.Name"  ||
-			colName == "Project.Name" 
+			colName == "Project.Name" ||
+			colName == "Step.Title"
 		){
 			colClasses = c(colClasses, "factor");
 		} else if (
@@ -1051,32 +1165,33 @@ getColClasses.final <- function (cnames){
 			grepl("\\.KI$", colName)[1] ||
 			grepl("Time\\.Spent",colName)[1] ||
 			grepl("Rev\\.Num",colName)[1] ||
-			grepl("Score",colName)[1] ||
+			grepl("Research\\.Score",colName)[1] ||
+			grepl("Max\\.Score",colName)[1] ||
 			grepl("score",colName)[1] ||
 			grepl("Count",colName)[1] ||
-			grepl("Rater",colName)[1] ||
 			colName == "Step.Num" ||
 			colName == "Step.Num.NoBranch" ||
 			colName == "Index" ||
 			colName == "Times.Copied" ||
 			colName == "Basket.Revision" ||
 			colName == "Idea.X.Position" ||
-			colName == "Idea.Y.Position"
+			colName == "Idea.Y.Position" 
 		){
 			colClasses = c(colClasses, "numeric");
 		} else if (
 			grepl("Student\\.Work",colName)[1] ||
 			grepl("Idea\\.Text", colName)[1] ||
-			colName == "Teacher.Comment"
+			colName == "Teacher.Comment" ||
+			colName == "Teacher.Comment.Timestamp" ||
+			colName == "Teacher.Score" ||
+			colName == "Teacher.Score.Timestamp" ||
+			colName == "Auto.Feedback" ||
+			colName == "Auto.Score" ||
+			colName == "Revision.Time"
 		){
 			colClasses = c(colClasses, "character");
 		} else {
-			#if (!is.null(nrow(colNames)) && nrow(colNames) > 0){
-			#	colClasses = c(colClasses, class(colNames[1,i]));
-			#} else{
-				colClasses = c(colClasses, "factor");
-			#}
-			
+			colClasses = c(colClasses, "character");
 		}
 	}
 	return (colClasses);

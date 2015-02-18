@@ -111,9 +111,18 @@ plot.wiseSW.CarGraph = function (sw, plotTypes, ...){
 	}	
 	return (value)
 }
-plot.wiseSW.Grapher = function (sw, plotTypes, ...){
+plot.wiseSW.Grapher = function (sw, plotTypes, revision.number = 999, ...){
 	#args = as.list(substitute(list(...)))[-1L]
 	args = list(...)
+	if (length(tail(sw,1)) == 0 || is.atomic(tail(sw, 1)[[1]]) || is.null(tail(sw, 1)[[1]]$predictions)){
+		print("Not a valid prediction")
+		return (NULL)
+	}
+	if (revision.number > 100){
+		revision.number <- length(sw)
+	}
+	sw <- sw[[revision.number]]
+	
 	if (is.null(args$xlim)){
 		xlim=c(0, max(c(sw$predictions$x,sw$observations$x)))
 	} else {
@@ -159,16 +168,23 @@ plot.wiseSW.Grapher = function (sw, plotTypes, ...){
 				if (!is.null(plot.dir)){
 					plot.predictions(sw$predictions, xlim, plot.file = paste(plot.dir,Step.Num,"-",Workgroup.Id,"-",Rev.Num,"-predictions.png",sep=""), plot.title=plot.title, ...)
 				} else {
-					plot.predictions(sw$predictions, xlim, plot.title=plot.title, ...)
+					plot.predictions(sw$predictions, xlim, plot.title = plot.title, ...)
 				}				
 			}
 		}	
 	}	
 }
-plot.wiseSW.Sensor = function (sw, plotTypes, ...){
+plot.wiseSW.Sensor = function (sw, plotTypes, revision.number = 999, ...){
 	#args = as.list(substitute(list(...)))[-1L]
 	args = list(...)
-	predictions = as.data.frame(tail(sw$predictions, 1))
+	if (length(tail(sw,1)) == 0 || is.atomic(tail(sw, 1)[[1]]) || is.null(tail(sw, 1)[[1]]$predictions)){
+		print("Not a valid prediction")
+		return (NULL)
+	}
+	if (revision.number > 100){
+		revision.number <- length(sw)
+	}
+	predictions <- as.data.frame(sw[[revision.number]]$predictions)
 	if (is.null(args$xlim)){
 		if (nrow(predictions) > 0) { xlim=c(0, max(predictions$x)) }
 		else {xlim = c(0,1)}
@@ -223,7 +239,6 @@ plot.wiseSW.Sensor = function (sw, plotTypes, ...){
 		}	
 	}	
 }
-#plot(sdf[1,],plotTypes="predictions", xlim=c(0,120), ylim=c(0,2200))
 # library(utils)
 plot.wiseSW.Mysystem2 = function (sw, plotTypes, ...){
 	if (plotTypes[1] == "svg"){
@@ -322,11 +337,20 @@ plot.predictions = function (predictions, ...){
 	} else {
 		plot.height = eval(args$plot.height)
 	}
+	if (is.null(args$plot.title)){
+		main = ""
+	} else {
+		main = eval(args$plot.title)
+	}
 	if (is.null(args$plot.file)){
 		plot.file = NULL
 	} else {
 		plot.file = eval(args$plot.file)
-		op = par(mar=c(0,0,0,0))
+		if (nchar(main) > 0){
+			op = par(mar=c(0,0,4,0))
+		} else {
+			op = par(mar=c(0,0,0,0))
+		}		
 		png(plot.file, plot.width, plot.height)
 	}
 	if (is.null(args$lwd)){
@@ -334,13 +358,10 @@ plot.predictions = function (predictions, ...){
 	} else {
 		lwd = eval(args$lwd)
 	}
-	if (is.null(args$plot.title)){
-		main = ""
-	} else {
-		main = eval(args$plot.title)
-	}
+	
 	plot(-100, -100, xlab="Time", ylab="Position", xlim=xlim, ylim=ylim, main=main)
 	for (i in 1:length(unique(predictions$id))){
+
 		sid = as.character(unique(predictions$id)[i])
 		pred = subset(predictions, id == sid)
 		
@@ -357,8 +378,8 @@ plot.predictions = function (predictions, ...){
 		}
 	}
 	if (!is.null(plot.file)){
-	 dev.off()
-	 par(op)
+		dev.off()
+		par(op)
 	}
 }
 

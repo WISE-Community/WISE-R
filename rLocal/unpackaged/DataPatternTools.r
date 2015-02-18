@@ -1,6 +1,6 @@
 
 ########################## SCORING NAVIGATION
-scoreNavigation.linearity = function (df, Step.Num.NoBranch=sort(unique(df$Step.Num.NoBranch)), by.Workgroup.Id=TRUE, by.Time=FALSE, as.data.frame.out = TRUE, ylim=c(as.numeric(as.character(Step.Num.NoBranch[1])), as.numeric(as.character(tail(Step.Num.NoBranch,1))))){
+scoreNavigation.linearity <- function (df, Step.Num.NoBranch=sort(unique(df$Step.Num.NoBranch)), by.Workgroup.Id=TRUE, by.Time=FALSE, as.data.frame.out = TRUE, ylim=c(as.numeric(as.character(Step.Num.NoBranch[1])), as.numeric(as.character(tail(Step.Num.NoBranch,1))))){
 	object = as.list(substitute(list(...)))[-1L]
 	### make sure there is a single individual
 	Step.Count.NoBranch = 1:length(Step.Num.NoBranch)
@@ -75,7 +75,7 @@ scoreNavigation.linearity = function (df, Step.Num.NoBranch=sort(unique(df$Step.
 ### total.zero.is.na: for pretest and posttest totals that are zero probably represent no test being completed, replace with NA
 magna.carta.holy.grail = function (obj, ...) UseMethod ("magna.carta.holy.grail");
 magna.carta.holy.grail.default = function (obj, ...){return("N/A");}
-magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", select.numerical = sapply(grep("URev\\.Num", names(which(sapply(obj,class) == "numeric")),invert=TRUE,value=TRUE),as.name), step.identifier = "Step.Id",  FUNS.numerical = c("sum", "mean", "max", "first", "last", "first.to.last"), total.names.pretest = c("KI\\.Score\\.max\\.Pretest"), total.names.posttest =c("KI\\.Score\\.max\\.Posttest"), run.statistics=FALSE, include.median.splits=TRUE, include.partner.scores = TRUE, total.zero.is.na=TRUE,...){
+magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", select.numerical = sapply(grep("URev\\.Num", names(which(sapply(obj,class) == "numeric")),invert=TRUE,value=TRUE),as.name), step.identifier = "Step.Id",  FUNS.numerical = c("sum", "mean", "max", "first", "last", "first.to.last"), find.gains = FALSE, total.names.pretest = NULL, total.names.posttest = NULL, run.statistics=FALSE, include.median.splits=TRUE, include.partner.scores = TRUE, total.zero.is.na=TRUE,...){
 	### every combination of steps with column values
 	if (class(select.numerical) == "list"){
 		# convert to vector of strings
@@ -99,23 +99,23 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
    		## TODO by Wise.Id
    		return (NULL)
    	}
+   	# expand columns
+   	obj <- expandMultipleResponses(obj)
+
 	agg = data.frame()
 	for (s in 1:length(Step.Id)){
 		step.id = Step.Id[s]
-		#print(paste("step id",step.id))
 		obj.step = subset(obj, obj[,step.identifier] == step.id)
-		#present.name = paste(step.id,"Present",sep=".")
-		#print(step.id)
 		if (by == "Workgroup.Id") {
-			agg2 = suppressWarnings(aggregate(obj.step,by=list(Workgroup.Id),select.first=c(Condition),select.numerical=lapply(ColName,as.name), FUNS.numerical=FUNS.numerical, include.median.splits=include.median.splits))
+			agg2 = suppressWarnings(aggregate(obj.step,by=list(Workgroup.Id),select.first=c("Condition","Teacher.Login"),select.numerical=lapply(ColName,as.name), FUNS.numerical=FUNS.numerical, include.median.splits=include.median.splits))
 		} else if (by == "Wise.Id.1"){
-			agg2 = suppressWarnings(aggregate(obj.step,by=list(Wise.Id.1),select.first=c(Condition),select.numerical=lapply(ColName,as.name), FUNS.numerical=FUNS.numerical, include.median.splits=include.median.splits))
+			agg2 = suppressWarnings(aggregate(obj.step,by=list(Wise.Id.1),select.first=c("Condition","Teacher.Login"),select.numerical=lapply(ColName,as.name), FUNS.numerical=FUNS.numerical, include.median.splits=include.median.splits))
 		}
 		names(agg2)[2] = "Condition"
-		#names(agg2)[2] = "Teacher.Login"
+		names(agg2)[3] = "Teacher.Login"
 		agg2[,1] = as.factor(agg2[,1])
 		agg2[,2] = as.factor(agg2[,2])
-		#agg2[,3] = as.factor(agg2[,3])
+		agg2[,3] = as.factor(agg2[,3])
 		
 		if (s == 1){
 			agg = agg2
@@ -131,9 +131,9 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
 	obj.unit = subset(obj, Is.Unit==TRUE)
 	if (nrow(obj.unit) > 0){
 		if (by == "Workgroup.Id") {
-			agg = merge(subset(obj.unit,!duplicated(Workgroup.Id),c("Workgroup.Id","Wise.Id.1","Wise.Id.2","Wise.Id.3", "Teacher.Login")), agg, by="Workgroup.Id", all.x=FALSE, all.y=TRUE)
+			agg = merge(subset(obj.unit,!duplicated(Workgroup.Id),c("Workgroup.Id","Wise.Id.1","Wise.Id.2","Wise.Id.3")), agg, by="Workgroup.Id", all.x=FALSE, all.y=TRUE)
 		} else if (by == "Wise.Id.1") {
-			agg = merge(subset(obj.unit,!duplicated(Wise.Id.1),c("Wise.Id.1","Workgroup.Id","Wise.Id.2","Wise.Id.3", "Teacher.Login")), agg, by="Wise.Id.1", all.x=FALSE, all.y=TRUE)
+			agg = merge(subset(obj.unit,!duplicated(Wise.Id.1),c("Wise.Id.1","Workgroup.Id","Wise.Id.2","Wise.Id.3")), agg, by="Wise.Id.1", all.x=FALSE, all.y=TRUE)
 		}
 		rm(obj.unit)
 	}
@@ -147,65 +147,71 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
 		agg = merge(agg, scoreNavigation.linearity(obj, by.Time = FALSE, by.Workgroup.Id = FALSE, as.data.frame.out=TRUE), by = c(by), suffixes = c("",""), all=TRUE)
 	}
 	#print("pre linearity")
-	if(include.median.splits) agg$Linearity.by.Time.median.split = agg$Linearity.by.Time >= median(agg$Linearity.by.Time)
-	if(include.median.splits) agg$Linearity.by.Step.median.split = agg$Linearity.by.Step >= median(agg$Linearity.by.Step)
-	### create gain scores (find matching pre and post test items)
-	names.post = grep("Posttest",names(agg),value=TRUE)
-	names.pre = grep("Pretest", names(agg),value=TRUE)
-	names.post = names.post[sub(".Posttest","",names.post) %in% sub(".Pretest","",names.pre)]
-	
-	# create new colunn for each match
-	for (n in names.post){	
-		agg[ ,sub(".Posttest",".Gain",n)] = 
-		tryCatch({agg[,n] - agg[ ,sub(".Posttest",".Pretest",n)]}, error=function(e){
-			print(n);
-			print(sub(".Posttest",".Pretest",n));
-			return (NULL)
-			}
-		)
+	if(include.median.splits) {
+		agg$Linearity.by.Time.median.split = agg$Linearity.by.Time >= median(agg$Linearity.by.Time)
+		agg$Linearity.by.Step.median.split = agg$Linearity.by.Step >= median(agg$Linearity.by.Step)
 	}
-	# get totals and gains
-	if (by == "Wise.Id.1") {
-		## get a pretest total
-		pretest.i <- numeric(); for (n in total.names.pretest) pretest.i = union(pretest.i, grep(n,names(agg)))
-		
-		### get max score assuming that at least one person got top score one each item
-		if (length(pretest.i) == 1){
-			pretest.items.max = max(agg[,pretest.i], na.rm=TRUE)
-			pretest.score.max = sum(pretest.items.max, na.rm=TRUE)
-			pretest.total = agg[,pretest.i]
-		} else {
-			pretest.items.max = as.numeric(apply(agg[,pretest.i], 2, max, na.rm=TRUE))
-			pretest.items.max[!is.finite(pretest.items.max)] = NA
-			pretest.score.max = sum(pretest.items.max, na.rm=TRUE)
-			pretest.total = apply(agg[,pretest.i], 1,sum,na.rm=TRUE)
-		}
-		agg$Total.Score.Pretest = pretest.total
-		if (total.zero.is.na) agg$Total.Score.Pretest[agg$Total.Score.Pretest==0] = NA
-		agg$Percent.Score.Pretest = agg$Total.Score.Pretest / pretest.score.max
-		if(include.median.splits) agg$Total.Score.Pretest.median.split = agg$Total.Score.Pretest >= median(agg$Total.Score.Pretest,na.rm=TRUE)
 
-		## get a posttest total
-		posttest.i = numeric(); for (n in total.names.posttest) posttest.i = union(posttest.i, grep(n,names(agg)))
+	if (find.gains){
+		### create gain scores (find matching pre and post test items)
+		names.post = grep("Posttest",names(agg),value=TRUE)
+		names.pre = grep("Pretest", names(agg),value=TRUE)
+		names.post = names.post[sub(".Posttest","",names.post) %in% sub(".Pretest","",names.pre)]
 		
-		### get max score assuming that at least one peoston got top score one each item
-		if (length(posttest.i) == 1){
-			posttest.items.max = max(agg[,posttest.i], na.rm=TRUE)
-			posttest.score.max = sum(posttest.items.max, na.rm=TRUE)
-			posttest.total = agg[,posttest.i]
-		} else {
-			posttest.items.max = as.numeric(apply(agg[,posttest.i], 2, max, na.rm=TRUE))
-			posttest.items.max[!is.finite(posttest.items.max)] = NA
-			posttest.score.max = sum(posttest.items.max, na.rm=TRUE)
-			posttest.total = apply(agg[,posttest.i], 1,sum,na.rm=TRUE)
+		# create new colunn for each match
+		for (n in names.post){	
+			agg[ ,sub(".Posttest",".Gain",n)] = 
+			tryCatch({agg[,n] - agg[ ,sub(".Posttest",".Pretest",n)]}, error=function(e){
+				print(n);
+				print(sub(".Posttest",".Pretest",n));
+				return (NULL)
+				}
+			)
 		}
-		agg$Total.Score.Posttest = posttest.total
-		if (total.zero.is.na) agg$Total.Score.Posttest[agg$Total.Score.Posttest==0] = NA
-		agg$Percent.Score.Posttest = agg$Total.Score.Posttest / posttest.score.max
-		agg$Total.Score.Gain = agg$Total.Score.Posttest - agg$Total.Score.Pretest
-		agg$Percent.Score.Gain = agg$Percent.Score.Posttest - agg$Percent.Score.Pretest
-	} 
+	}
+	if (!is.null(total.names.pretest) && !is.null(total.names.pretest)){
+		# get totals and gains
+		if (by == "Wise.Id.1") {
+			## get a pretest total
+			pretest.i <- numeric(); for (n in total.names.pretest) pretest.i = union(pretest.i, grep(n,names(agg)))
+			
+			### get max score assuming that at least one person got top score one each item
+			if (length(pretest.i) == 1){
+				pretest.items.max = max(agg[,pretest.i], na.rm=TRUE)
+				pretest.score.max = sum(pretest.items.max, na.rm=TRUE)
+				pretest.total = agg[,pretest.i]
+			} else {
+				pretest.items.max = as.numeric(apply(agg[,pretest.i], 2, max, na.rm=TRUE))
+				pretest.items.max[!is.finite(pretest.items.max)] = NA
+				pretest.score.max = sum(pretest.items.max, na.rm=TRUE)
+				pretest.total = apply(agg[,pretest.i], 1,sum,na.rm=TRUE)
+			}
+			agg$Total.Score.Pretest = pretest.total
+			if (total.zero.is.na) agg$Total.Score.Pretest[agg$Total.Score.Pretest==0] = NA
+			agg$Percent.Score.Pretest = agg$Total.Score.Pretest / pretest.score.max
+			if(include.median.splits) agg$Total.Score.Pretest.median.split = agg$Total.Score.Pretest >= median(agg$Total.Score.Pretest,na.rm=TRUE)
 
+			## get a posttest total
+			posttest.i = numeric(); for (n in total.names.posttest) posttest.i = union(posttest.i, grep(n,names(agg)))
+			
+			### get max score assuming that at least one peoston got top score one each item
+			if (length(posttest.i) == 1){
+				posttest.items.max = max(agg[,posttest.i], na.rm=TRUE)
+				posttest.score.max = sum(posttest.items.max, na.rm=TRUE)
+				posttest.total = agg[,posttest.i]
+			} else {
+				posttest.items.max = as.numeric(apply(agg[,posttest.i], 2, max, na.rm=TRUE))
+				posttest.items.max[!is.finite(posttest.items.max)] = NA
+				posttest.score.max = sum(posttest.items.max, na.rm=TRUE)
+				posttest.total = apply(agg[,posttest.i], 1,sum,na.rm=TRUE)
+			}
+			agg$Total.Score.Posttest = posttest.total
+			if (total.zero.is.na) agg$Total.Score.Posttest[agg$Total.Score.Posttest==0] = NA
+			agg$Percent.Score.Posttest = agg$Total.Score.Posttest / posttest.score.max
+			agg$Total.Score.Gain = agg$Total.Score.Posttest - agg$Total.Score.Pretest
+			agg$Percent.Score.Gain = agg$Percent.Score.Posttest - agg$Percent.Score.Pretest
+		} 
+	}
 	### put the scores of partner in same row
 	if (include.partner.scores){
 		names.for.partner = names(agg)[sapply(agg,is.numeric)]
@@ -243,9 +249,40 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
 	
    	return(agg);
 }
+magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last") )
 
-#magna.prepost = magna.carta.holy.grail(subset(wise,Is.Pretest==TRUE|Is.Posttest==TRUE), by="Wise.Id.1", ,select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Step\\.Visit\\.Count|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.",names(wise), value=TRUE),as.name), FUNS.numerical = c("max"), run.statistics=FALSE, step.identifier = "Step.Id")
 
+readForColValues.magna <- function (agg, sourceFile, sourceColNames.pattern = "Score|C\\.", by="Wise.Id.1", step.identifier="Step.Id", includes.formulas = TRUE, ...){
+	if (includes.formulas) {
+		sourceDF <- read.xlsx(sourceFile, stringsAsFactors=FALSE, keepFormulas=FALSE, ...)
+	} else {
+		sourceDF <- read.xlsx2(sourceFile, stringsAsFactors=FALSE, ...)
+	}
+	if (!is.null(sourceColNames.pattern) && nchar(sourceColNames.pattern) > 0){
+		sourceColNames <- grep(sourceColNames.pattern, names(sourceDF), value=TRUE)	
+	} else {
+		sourceColNames <- naems(sourceDF)
+	}
+	if (!is.null(step.identifier) && step.identifier %in% sourceColNames){
+		step.id <- unique(sourceDF[,step.identifier])
+		step.id <- step.id[!is.na(step.id)&nchar(step.id)>0]
+		if (length(step.id) == 1){
+			sourceColNames <- paste(sourceColNames, step.id,sep=".")
+		} else if (length(step.id) == 0){
+			print(step.identifier, "is not located in this sheet")
+		} else {
+			print ("There are multiple", step.identifier, "in this file")
+			print (step.id)			
+		}		
+	}
+	# get source that is just target columns
+	source <- sourceDF[,c(by, sourceColNames)]
+	agg <- merge(agg, source, by=by)
+
+	for (s in 1:length(sourceColNames)){
+
+
+}
 
 analyze.magna.carta.holy.grail.magna = function(agg, by = "Workgroup.Id", p.value = 0.05, median.split.only = TRUE, dependent.measures = character(), covariates = character(), show.sig.correlations = FALSE, use.dependents.as.covariates = FALSE, show.statistics = TRUE, ...){
 	### will create an output data frame with significant factors

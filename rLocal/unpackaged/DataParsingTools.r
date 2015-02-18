@@ -37,7 +37,7 @@ as.wiseSW.wisedata.frame <- function(obj, ...){
 }
 as.wiseSW.wiseSW <- function (sw, row, ...){
 	indices = grep("Student\\.Work", names(row))
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	if (nrow(row) == 0) return (NULL)
 	for (ri in 1:nrow(row)){
 		vals <- row[ri,indices]
@@ -49,10 +49,14 @@ as.wiseSW.wiseSW <- function (sw, row, ...){
 	return(sw)
 }
 
-as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student.Work"){
+as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student\\.Work"){
 	### which indices contain Student Work?
-	indices <- grep(colNames, names(row))
-	row <- expandMultipleResponses(row, FALSE)
+	indices <- numeric()
+	for (cn in colNames){
+		indices <- union(indices, grep(cn, names(row)))
+	}
+
+	row <- expandMultipleResponses(row)
 	responses <- row[,indices]
 	
 	for (ri in 1:nrow(responses)){
@@ -70,88 +74,84 @@ as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student.Work"){
 	return(sw)
 }
 
-as.wiseSW.wiseSW.OpenResponse <- function(sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.MatchSequence <- function (sw, row){
+	library(rjson)
+	
 	#### which indices contain Student Work?
-	index <- grep(colNames, names(row))[1];
+	index = grep("Student\\.Work\\.Part\\.1$", names(row));
 	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	## with c-rater feedback student responses are stuck in brackets like Student Response: []
+	rows <- expandMultipleResponses(row)
+	responses <- rows[,index];
+	#responses <- responses[nchar(responses)>0]
+	
 	for (r in responses){
+		lindex <- length(sw)+1
+		sw[[lindex]] <- list()
+		tableData <- data.frame()
+		ldata <- tryCatch(fromJSON(as.character(r)), error = function(e) return (NA)) 
+		if (!is.na(ldata) && length(ldata) > 0){
+			for (li in 1:length(ldata)){
+				fieldText <- ifelse(!is.null(ldata[[li]]$text), ldata[[li]]$text, NA)
+				isTargetBucket <- ifelse(!is.null(ldata[[li]]$isTargetBucket), ldata[[li]]$isTargetBucket, NA)
+				fieldIdentifier <- ifelse(!is.null(ldata[[li]]$identifier), ldata[[li]]$identifier, NA)
+				if (length(ldata[[li]]$choices) > 0){
+					for (ci in 1:length(ldata[[li]]$choices)){
+						choiceText <- ifelse(!is.null(ldata[[li]]$choices[[ci]]$text), ldata[[li]]$choices[[ci]]$text, NA)
+						choiceBucket <- ifelse(!is.null(ldata[[li]]$choices[[ci]]$bucket), ldata[[li]]$choices[[ci]]$bucket, NA)
+						choiceIdentifier <- ifelse(!is.null(ldata[[li]]$choices[[ci]]$identifier), ldata[[li]]$choices[[ci]]$identifier, NA)
+						tableData <- rbind(tableData, data.frame(fieldText = fieldText, isTargetBucket = isTargetBucket, fieldIdentifier = fieldIdentifier, choiceText = choiceText, choiceBucket = choiceBucket, choiceIdentifier = choiceIdentifier))
+					}
+				}
+			}
+			
+			sw[[lindex]]$table <- tableData
+		} else {
+			sw[[lindex]]$table <- NA
+		}
+	}
+	return (sw)
+}
+
+
+## Will capture all of the columns from colNames and replace the names with replNames (should be matching length of each set)
+as.wiseSW.wiseSW.OpenResponse <- function(sw, row ){
+	#, colNames = c("Student\\.Work","^Auto\\.Score"), replNames = c("data", "Auto.Score"), replClass = c("character", "numeric")
+	#### which indices contain Student Work?
+	indices <- numeric()
+	#replNames.temp <- character();	replClass.temp <- character(); 	for (cni in 1:length(colNames)){cn <- colNames[cni];index.temp <- grep(cn, names(row));	replNames.temp <- c(replNames.temp, rep(replNames[cni],length(index.temp)));replClass.temp <- c(replClass.temp, rep(replClass[cni],length(index.temp)));	indices <- c(indices, index.temp);	};	replNames <- replNames.temp;	replClass <- replClass.temp;	index <- grep("Student\\.Work\\.Part\\.1", names(row))
+	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
+	rows <- expandMultipleResponses(row)
+	#responses <- row[,indices]
+	
+	# only use those rows where there is some work in the first student work column
+	#responses <- responses[nchar(row[,index]) > 0,]
+	## Look in multiple rows for data
+	for (ri in 1:nrow(rows)){
+		row <- rows[ri,]
 		lindex <- length(sw) + 1
 		sw[[lindex]] <- list()
-		if (regexpr("Student Response: \\[",r)[1] > -1){
-			exp = regexpr("Student Response: \\[",r)
-			start = exp[1] + attr(exp, "match.length") + 1
-			exp = regexpr("Student Response: \\[.*?\\]",r)
-			stop = exp[1] + attr(exp, "match.length") - 3
-			data <- substring(r, start, stop);
-			## autoscoring?
-			if (regexpr("Check Answer: \\[",r)[1] > -1){
-				exp = regexpr("Check Answer: \\[",r)
-				start = exp[1] + attr(exp, "match.length")
-				exp = regexpr("Check Answer: \\[.*?\\]",r)
-				stop = exp[1] + attr(exp, "match.length") - 2
-				Check.Answer <- as.logical(substring(r, start, stop))
-			}
-			## Yes we are checking answer for auto-score
-			if (Check.Answer){
-				### c-rater?
-				if (regexpr("CRater",r)[1] > -1){
-					Auto.Score.Type <- "CRater";
-					if (regexpr("CRater Score: \\[",r)[1] > -1){
-						exp = regexpr("CRater Score: \\[",r)
-						start = exp[1] + attr(exp, "match.length")
-						#exp = regexpr("CRater Score: \\[[^\\[]*?\\]",r)
-						exp = regexpr("CRater Score: \\[.*?\\]",r)
-						stop = exp[1] + attr(exp, "match.length") - 2
-						Auto.Score <- as.numeric(substring(r, start, stop))
-					} else {
-						Auto.Score <- NA
-					}
-					if (regexpr("CRater Feedback: \\[",r)[1] > -1){
-						exp = regexpr("CRater Feedback: \\[",r)
-						start = exp[1] + attr(exp, "match.length")
-						exp = regexpr("CRater Feedback: \\[.*?\\]",r)
-						stop = exp[1] + attr(exp, "match.length") - 2
-						Auto.Feedback <- substring(r, start, stop)
-					} else {
-						Auto.Feedback <- ""
-					}
-				} else {
-					Auto.Score.Type <- "none"
-					Auto.Score <- NA
-					Auto.Feedback <- ""
-				}
-			} else {
-				Auto.Score.Type <- "none"
-				Auto.Score <- NA
-				Auto.Feedback <- ""
-			}
+		# In some strange cases where there is data in Student.Work.Part.4 it is the data
+		if (length(which(names(row)=="Student.Work.Part.4"))>0 && nchar(row$Student.Work.Part.4)>0){
+			sw[[lindex]][["data"]] <- row$Student.Work.Part.4
+			sw[[lindex]][["Auto.Score"]] <- as.numeric(row$Auto.Score)
+			sw[[lindex]][["Auto.Feedback"]] <- row$Auto.Feedback
+			sw[[lindex]][["Max.Score"]] <- as.numeric(row$Student.Work.Part.5)
 		} else {
-			data <- r
-			Check.Answer <- FALSE
-			Auto.Score.Type <- "none"
-			Auto.Score <- NA
-			Auto.Feedback <- ""
+			sw[[lindex]][["data"]] <- row$Student.Work.Part.1
 		}
-		sw[[lindex]][["data"]] <- data
-		sw[[lindex]][["Check.Answer"]] <- Check.Answer
-		sw[[lindex]][["Auto.Score.Type"]] <- Auto.Score.Type
-		sw[[lindex]][["Auto.Score"]] <- Auto.Score
-		sw[[lindex]][["Auto.Feedback"]] <- Auto.Feedback
+
+		#for (ci in 1:ncol(responses)){val <- responses[ri, ci];	val <- suppressWarnings(do.call(paste("as",replClass[ci],sep="."),list(val)));sw[[lindex]][[replNames[ci]]] <- val}
 	}
-	
 	return(sw)
 }
+#as.wiseSW(row)
 #score(wise[r,], score.rubric = rubrics.nwords, out.colName = "NWords", as.data.frame.out=TRUE,DEBUG=TRUE)
 as.wiseSW.wiseSW.Mysystem2 <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
 	library(rjson)
 	#### which indices contain Student Work?
 	index = grep(colNames, names(row));
 	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	#data = character(); Is.Submit = logical(); Auto.Score = numeric(); Success = logical(); Auto.Feedback = character();tables = list();Svg = character()
@@ -159,6 +159,7 @@ as.wiseSW.wiseSW.Mysystem2 <- function (sw, row, colNames = "Student\\.Work\\.Pa
 		lindex <- length(sw) + 1
 		sw[[lindex]] <- list()
 		# remove (escaped) newlines
+		r <- gsub("\\\\\\\\n","",r) # this is weird, in one example I found \\\\n instead of //n
 		r <- gsub("\\\\n","",r)
 		r <- gsub("\\\\c","",r)
 		### Get table of Nodes and Link
@@ -240,7 +241,7 @@ as.wiseSW.wiseSW.Note <- function (sw, row, colNames = "Student.Work"){
 as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student\\.Work\\.Part\\.1"){
 	#### which indices contain Student Work?
 	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	for (r in responses){
@@ -291,18 +292,17 @@ as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student\\.Work\\.Pa
 }
 #sw = as.wiseSW(row)
 
-as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1$"){
 	#### which indices contain Student Work?
 	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	### Assumes that data comes from the spcial parser, there may be multiple student responses, the data will contain
 	### a list of responses and prediction values
-	val = row[1,indices[1]]; 
-	lval = strsplit(val, "Response #[0-9]+: ")[[1]]
+	#val = row[1,index[1]]; 
+	#lval = strsplit(val, "Response #[0-9]+: ")[[1]]
 
-	responses = character();
 	xMin = numeric()
 	xMax = numeric()
 	yMin = numeric()
@@ -315,6 +315,7 @@ as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\
 		predictions = convertListOfListToListOfVectors(ldata$predictionArray)
 		if (length(predictions) > 0){
 			predictionsdf = data.frame(id=rep("prediction",length(predictions$x)),x=predictions$x, y=predictions$y)
+			sw[[lindex]] <- list()
 			sw[[lindex]][['predictions']] <- predictionsdf
 			sw[[lindex]][['response']] <- ldata$response
 			sw[[lindex]][['xMin']] <- as.numeric(ldata$xMin)
@@ -331,14 +332,14 @@ as.wiseSW.wiseSW.Sensor <- function (sw, row, colNames = "Student\\.Work\\.Part\
 ### update xMin and all that
 as.wiseSW.wiseSW.Grapher <- function (sw, row, ...){
 	#### which indices contain Student Work?
-	indices = grep("Student.Work", names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	index <- grep("Student\\.Work\\.Part\\.1$", names(row));
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	for (r in responses){
 		r <- gsub("\\\\n","",r)
 		lindex <- length(sw) + 1
-		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
+		datal = fromJSON(paste("{", r, "}"))
 		### create a data frame that captures:
 		# id, x, y;
 		predictions <- data.frame(id = character(), x = numeric(), y = numeric())
@@ -358,10 +359,14 @@ as.wiseSW.wiseSW.Grapher <- function (sw, row, ...){
 					predictions <- rbind(predictions, pdf)	
 				}
 			}
+			sw[[lindex]] <- list()
 			sw[[lindex]][['predictions']] <- predictions
+			if (length(datal$feedbackMessage) > 0) sw[[lindex]][['feedbackMessage']] <- datal$feedbackMessage
+			if (length(datal$score) > 0) sw[[lindex]][['score']] <- datal$score
 		} else {
 			sw[[lindex]] <- NA
 		}
+
 	} 			
 	return(sw)
 }
@@ -369,12 +374,13 @@ as.wiseSW.wiseSW.Grapher <- function (sw, row, ...){
 as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 	#### which indices contain Student Work?
 	indices = grep("Student.Work", names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	for (r in responses){
 		r <- gsub("\\\\n","",r)
 		lindex <- length(sw) + 1
+		sw[[lindex]] <- list()
 		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
 		### create a data frame that captures:
 		# id, x, y;
@@ -390,9 +396,9 @@ as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 					predictions <- rbind(predictions, pdf)	
 				}
 			}
-			sw[[lindex]]['predictions'] <- predictions
+			sw[[lindex]][['predictions']] <- predictions
 		} else {
-			sw[[lindex]]['predictions'] <- NA
+			sw[[lindex]][['predictions']] <- NA
 		}
 		if (length(datal$observationArray) > 0){
 			### create a data frame that captures:
@@ -430,76 +436,17 @@ as.wiseSW.wiseSW.CarGraph <- function (sw, row, ...){
 					}
 					observations = rbind(observations, pdf)
 				}
-			} sw[[lindex]]['observations'] <- observations
+			} 
+			sw[[lindex]][['observations']] <- observations
 		} else {
-			sw[[lindex]]['observations'] <- NA
+			sw[[lindex]][['observations']] <- NA
 		}
 	} 				
 	return(sw)
 }
-as.wiseSW.wiseSW.MatchSequence <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
-	library(rjson)
-	nrow.titles = 0
-	ncol.titles = 1
-
-	#### which indices contain Student Work?
-	index = grep(colNames, names(row));
-	## if we don't want to work with multiple responses distributed over columns call expandMultipleResponses with expandToColumn = FALSE prior to using this function
-	row <- expandMultipleResponses(row, FALSE)
-	responses <- row[,index];
-	responses <- responses[nchar(responses)>0]
-	
-	for (r in responses){
-		lindex <- length(sw)+1
-		sw[[lindex]] <- list()
-		tableData = data.frame()
-		tableDimData = data.frame()
-		datal = fromJSON(as.character(r))$response
-		if (!is.null(datal$tableData)){
-			ncols = length(datal$tableData)
-			nrows = length(datal$tableData[[1]])
-			rtitles = character()
-			
-			#iterate through each column
-			for (c in (nrow.titles+1):ncols){
-				ctitle = ""
-				if (ncol.titles > 0){
-					for (r in 1:ncol.titles){
-						ctitle = paste(ctitle, as.character(datal$tableData[[c]][[r]]$text), collapse=".");
-					}
-				} else {
-					ctitle = paste("Col",c,sep=".")
-				}
-				column = character()
-				dimcolumn = character()
-				for (r in (ncol.titles+1):nrows){
-					column = c(column, as.character(datal$tableData[[c]][[r]]$text));
-					dimcolumn = c(dimcolumn, ifelse(!is.null(datal$tableData[[c]][[r]]$cellSize),datal$tableData[[c]][[r]]$cellSize, 15))
-				}
-				if (length(tableData) == 0){
-					tableData = data.frame(TEMP = column)
-					tableDimData = data.frame(TEMP = dimcolumn)
-				} else {
-					tableData$TEMP = column;
-					tableDimData$TEMP = dimcolumn;					
-				}
-				names(tableData)[which(names(tableData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
-				names(tableDimData)[which(names(tableDimData) == "TEMP")] = gsub("^\\s+|\\s+$", "", ctitle);
-			}
-			if (nrow.titles > 0){
-				row.names(tableData) = rtitles 
-				row.names(tableDimData) = rtitles
-			} 
-			sw[[lindex]]$table <- tableData
-			sw[[lindex]]$tableDims <- tableDimData
-		} else {
-			sw[[lindex]] <- NA
-		}
-	}
-}
-
-as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\.1"){
+as.wiseSW.wiseSW.Table <- function (sw, row, ...){
 	args = list(...)
+	colNames = "Student\\.Work\\.Part\\.1$"
 	if (is.null(args$nrow.titles)){
 		nrow.titles = 0
 	} else {
@@ -511,13 +458,19 @@ as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\
 		ncol.titles = eval(args$ncol.titles)
 	}
 	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
+	
 	for (r in responses){
+		r <- gsub("\\\\n","",r)
+		r <- paste("{", r, "}",sep="")
+		#r <- gsub('\\\\"','',r)
+		tableData <- data.frame()
+		tableDimData <- data.frame()
 		lindex <- length(sw)+1
 		sw[[lindex]] <- list()
-		datal = fromJSON(sub("Response #[0-9]+: ", "",r))
+		datal = fromJSON(r)
 		if (!is.null(datal$tableData) && length(datal$tableData) > nrow.titles && length(datal$tableData[[1]]) > ncol.titles){
 			ncols = length(datal$tableData)
 			nrows = length(datal$tableData[[1]])
@@ -534,20 +487,20 @@ as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\
 			}
 
 			#iterate through each column
-			for (c in (nrow.titles+1):ncols){
+			for (ci in (nrow.titles+1):ncols){
 				ctitle = ""
 				if (ncol.titles > 0){
-					for (r in 1:ncol.titles){
-						ctitle = paste(ctitle, as.character(datal$tableData[[c]][[r]]$text), collapse=".");
+					for (ri in 1:ncol.titles){
+						ctitle = paste(ctitle, as.character(datal$tableData[[ci]][[ri]]$text), collapse=".");
 					}
 				} else {
 					ctitle = paste("Col",c,sep=".")
 				}
 				column = character()
 				dimcolumn = character()
-				for (r in (ncol.titles+1):nrows){
-					column = c(column, as.character(datal$tableData[[c]][[r]]$text));
-					dimcolumn = c(dimcolumn, ifelse(!is.null(datal$tableData[[c]][[r]]$cellSize),datal$tableData[[c]][[r]]$cellSize, 15))
+				for (ri in (ncol.titles+1):nrows){
+					column = c(column, as.character(datal$tableData[[ci]][[ri]]$text));
+					dimcolumn = c(dimcolumn, ifelse(!is.null(datal$tableData[[ci]][[ri]]$cellSize),datal$tableData[[ci]][[ri]]$cellSize, 15))
 				}
 				if (length(tableData) == 0){
 					tableData = data.frame(TEMP = column)
@@ -563,15 +516,21 @@ as.wiseSW.wiseSW.Table <- function (sw, row, colNames = "Student\\.Work\\.Part\\
 				row.names(tableData) = rtitles 
 				row.names(tableDimData) = rtitles
 			} 
-			sw[[lindex][['table']] <- tableData
-			sw[[lindex][['tableDims'] <- tableDimData
+			sw[[lindex]][['table']] <- tableData
+			sw[[lindex]][['tableDims']] <- tableDimData
 		} else {
-			sw[[lindex] <- NA
+			sw[[lindex]] <- NA
 		}
+		if (length(datal$feedbackMessage) > 0) sw[[lindex]][['feedbackMessage']] <- datal$feedbackMessage
+		if (length(datal$score) > 0) sw[[lindex]][['score']] <- datal$score
+		if (length(datal$response) > 0) sw[[lindex]][['response']] <- datal$response
+		if (length(datal$timestamp) > 0) sw[[lindex]][['timestamp']] <- datal$timestamp
 	}
-	
 	return(sw)
 }
+#as.wiseSW(row)
+
+
 #TODO
 as.wiseSW.wiseSW.ExplanationBuilder <- function (sw, row,  colNames = "Student\\.Work\\.Part\\.1"){
 	args = list(...)
@@ -586,7 +545,7 @@ as.wiseSW.wiseSW.ExplanationBuilder <- function (sw, row,  colNames = "Student\\
 		otherDF = eval(args$otherDF)
 	}
 	index = grep(colNames, names(row));
-	row <- expandMultipleResponses(row, FALSE)
+	row <- expandMultipleResponses(row)
 	responses <- row[,index];
 	responses <- responses[nchar(responses)>0]
 	
@@ -698,13 +657,11 @@ feedbackGiven.wiseSW.OpenResponse <- function (obj){
 feedbackGiven.wiseSW.Note <- function (obj){
 	return(feedbackGiven.wiseSW.OpenResponse(obj))
 }
+
 studentResponse <- function (obj, ...) UseMethod ("studentResponse");
 studentResponse.default <- function (obj, ...){return("N/A");}
-studentResponse.wisedata.frame <- function (obj, as.data.frame.out = TRUE, studentResponse.colName = "Student.Response", ...){
-	index = which("Index" == names(obj));
-	if (index < 0){
-		obj = cbind(Index = 1:nrow(obj), obj);
-	}
+studentResponse.wisedata.frame <- function (obj, as.data.frame.out = FALSE, studentResponse.colName = "Student.Response", ...){
+	if (length(which("Index" == names(obj))) == 0) obj$Index <- 1:nrow(obj)
 	obj.sub = obj
 	
 	# iterate through rows of subset studentResponse each value and put in 
@@ -725,8 +682,10 @@ studentResponse.wisedata.frame <- function (obj, as.data.frame.out = TRUE, stude
 		return (studentResponses);
 	}	
 }
+#studentResponse(obj.final,as.data.frame.out=FALSE)
+
 studentResponse.wiseSW.OpenResponse <- function (obj, revision.number=999, ...){
-	if (length(obj) == 0) return ("N/A");
+	if (length(obj) == 0) return ("");
 	if (revision.number > length(obj)) revision.number <- length(obj)
 	obj <- obj[[revision.number]]
 	if (!is.null(obj$data)){
@@ -740,8 +699,8 @@ studentResponse.wiseSW.OpenResponse <- function (obj, revision.number=999, ...){
 studentResponse.wiseSW.Note <- function (obj, ...){
 	return (studentResponse.wiseSW.OpenResponse(obj, ...))
 }
-studentResponse.wiseSW.MultipleChoice <- function (obj, revision.number=999, ...){
-	if (length(obj) == 0) return ("N/A");
+studentResponse.wiseSW.MultipleChoice <- function (obj, revision.number=999, Student.Work.Part = 1, ...){
+	if (Student.Work.Part > 1 || length(obj) == 0) return ("");
 	if (revision.number > length(obj)) revision.number <- length(obj)
 	obj <- obj[[revision.number]]
 	if (!is.null(obj[[1]])){
@@ -757,7 +716,7 @@ studentResponse.wiseSW.AssessmentList <- function (obj, revision.number=999, Stu
 	if (revision.number > length(obj)) revision.number <- length(obj)
 	obj <- obj[[revision.number]]
 	
-	if (length(obj) < Student.Work.Part) return ("N/A")
+	if (length(obj) < Student.Work.Part) return ("")
 	else return (obj[[Student.Work.Part]])
 }
 #studentResponse(row, as.data.frame.out=FALSE, revision.number=1,Student.Work.Part =1)
