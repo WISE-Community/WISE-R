@@ -25,9 +25,9 @@ write.wisedata.frame.prepost <- function(obj, dir.out, filename=NULL, byConditio
 		} else {
 			include.delayed <- FALSE
 		}
-		obj.pre.step = subset(obj.pre, grepl(step.title, Step.Id, fixed = TRUE))
-		obj.post.step = subset(obj.post, grepl(step.title, Step.Id, fixed = TRUE))
-		if (include.delayed) obj.delayed.step = subset(obj.delayed, grepl(step.title, Step.Id, fixed = TRUE))
+		obj.pre.step = subset(obj.pre, Step.Id==paste(pretest.identifier,step.title,sep="."))
+		obj.post.step = subset(obj.post, Step.Id==paste(posttest.identifier,step.title,sep="."))
+		if (include.delayed) obj.delayed.step = subset(obj.delayed, Step.Id==paste(delayed.identifier,step.title,sep="."))
 		
 		# make sure that there are responses to this step
 		indices = grep("Student.Work", names(obj.pre.step))
@@ -95,6 +95,7 @@ write.wisedata.frame.prepost <- function(obj, dir.out, filename=NULL, byConditio
 	}
 	return(obj.step)
 }
+
 # wise.prepost.dylan.out <- write.wisedata.frame.prepost(wise.prepost.dylan, dir.out=dir.out, filename="GS-Fall2014-prepost-Dylan.xlsx", extra.columns=c("C.Rater.Score", "Dylan"))
 #prepost.out = write.wisedata.frame.prepost(subset(wise.2013,wise.2013$Step.Id %in% c("Pretest.Temperature.and.Heat.energy", "Posttest.Temperature.and.Heat.energy","Posttest.Temperature.and.Heat.energy.explanation")), dir.out.2013, byCondition=FALSE,filename="Thermo-2013-pre-post-Heat-full.xlsx", extra.columns=c("Spoon.CRater.Score","Heat.CRater.Score"))
 
@@ -437,7 +438,7 @@ write.wisedata.frame.allsteps <- function(obj, dir.out, filename=NULL, byConditi
 			indices = grep("Student.Response", names(obj.step))
 			# get only those who completed both pre and post
 			obj.step = subset(obj.step, IURev.Num==0)
-			relevant.columns = c("Wise.Id.1","Condition", "Teacher.Login", "Index", "Workgroup.Id", "Class.Period", "Parent.Project.Id", "Project.Id", "Run.Id", "Step.Work.Id", "Step.Visit.Count", "Step.Revision.Count","Step.Title","Step.Id","Step.Prompt","Time.Spent.Seconds",extra.columns)
+			relevant.columns = c("Wise.Id.1","Wise.Id.2","Wise.Id.3","Condition", "Teacher.Login", "Index", "Workgroup.Id", "Class.Period", "Parent.Project.Id", "Project.Id", "Run.Id", "Step.Work.Id", "Step.Visit.Count", "Step.Revision.Count","Step.Title","Step.Id","Step.Prompt","Time.Spent.Seconds",extra.columns)
 			relevant.columns = relevant.columns[relevant.columns %in% names(obj)]
 			relevant.columns = c(relevant.columns, paste("Student.Response",1:length(indices),sep="."))
 			## use only relevant columns

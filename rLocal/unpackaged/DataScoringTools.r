@@ -73,6 +73,8 @@ addNewScore <- function(scores, pattern="", score = NA, rules = NULL){
 			if (length(repl) > 0){
 				ids = c(ids, id)
 				repls = c(repls, repl)
+			} else if (nchar(id) == 0){
+				# do nothing
 			} else {
 				print(paste("No Match for", id))
 			}
@@ -191,7 +193,9 @@ score.wisedata.frame <- function (obj, score.rubrics, as.data.frame.out = TRUE, 
 		## is there a rubric for this step number?
 		found_item = list()
 		for (l in score.rubrics){
+			if(DEBUG)print(paste(obj.sub$Step.Num[r], "?in?", l$Step.Num, obj.sub$Step.Num.NoBranch[r], "?in?", l$Step.Num.NoBranch, obj.sub$Step.Id[r], "?in?", l$Step.Id, obj.sub$Parent.Project.Id[r], "?in?",  l$Parent.Project.Id, obj.sub$Project.Id[r], "?in?", l$Project.Id,  obj.sub$Run.Id[r], "?in?", l$Run.Id))
 			if (is.list(l) && ((!is.null(l$Step.Num) && obj.sub$Step.Num[r] %in% l$Step.Num) || (!is.null(l$Step.Num.NoBranch) && obj.sub$Step.Num.NoBranch[r] %in% l$Step.Num.NoBranch) || (!is.null(l$Step.Id) && obj.sub$Step.Id[r] %in% l$Step.Id)) && ((!is.null(l$Parent.Project.Id) && obj.sub$Parent.Project.Id[r] %in% l$Parent.Project.Id) || (!is.null(l$Project.Id) && obj.sub$Project.Id[r] %in% l$Project.Id) || (!is.null(l$Run.Id) && obj.sub$Run.Id[r] %in% l$Run.Id))){
+				
 				found_item = l
 				break;
 			}
@@ -253,6 +257,7 @@ score.wisedata.frame <- function (obj, score.rubrics, as.data.frame.out = TRUE, 
 		return (as.numeric(scores));
 	}
 }
+score(row.save,score.rubrics=rubrics.standard,as.data.frame.out=FALSE, DEBUG=TRUE)
 
 #score(row,score.rubrics=rubrics.standard,as.data.frame.out=FALSE, DEBUG=TRUE)
 
@@ -582,18 +587,18 @@ score.wiseSW.Grapher <- function (obj, score.type, score.rubric, revision.number
 	while (looping){
 		looping <- FALSE
 		score <- NA
-		obj <- obj[[revision.number]]
+		obj.rev <- obj[[revision.number]]
 		## make sure there are data points to score
-		if (!is.null(obj$predictions) && length(obj$predictions) >= 0){
+		if (!is.null(obj.rev$predictions) && nrow(obj.rev$predictions) >= 0){
 			if (!missing(score.type)){
 				if (score.type == "ruleRubric"){
-					score <- scoreGraph.ruleRubric(obj$predictions, score.rubric, ...)
+					score <- scoreGraph.ruleRubric(obj.rev$predictions, score.rubric, ...)
 				} else if (score.type == "rawpoints"){
-					score <- scoreGraph.rawpoints(obj$predictions, score.rubric, ...)
+					score <- scoreGraph.rawpoints(obj.rev$predictions, score.rubric, ...)
 				} else if (score.type == "countpoints"){
-					score <- nrow(obj$predictions, ...)
+					score <- nrow(obj.rev$predictions, ...)
 				} else if (score.type == "rmse"){
-					score <- scoreGraph.rmse(obj$predictions, score.rubric, ...)
+					score <- scoreGraph.rmse(obj.rev$predictions, score.rubric, ...)
 				} 
 			} 
 		}
@@ -615,6 +620,7 @@ score.wiseSW.Grapher <- function (obj, score.type, score.rubric, revision.number
 		}
 	}
 }
+#x <- score(wise[i,], score.rubric = rubrics.standard, as.data.frame.out=FALSE,DEBUG=FALSE)
 
 score.wiseSW.CarGraph <- function (obj, score.type = NULL, score.rubric, revision.number = 999, ...){
 	if (length(obj) == 0) return (NA)
@@ -632,9 +638,9 @@ score.wiseSW.CarGraph <- function (obj, score.type = NULL, score.rubric, revisio
 	while (looping){
 		looping <- FALSE
 		score <- NA
-		obj <- obj[[revision.number]]
+		obj.rev <- obj[[revision.number]]
 
-		if (is.null(obj) || length(obj) == 0) return (NA)
+		if (is.null(obj.rev) || length(obj.rev) == 0) return (NA)
 
 		args = list(...)
 		if (is.null(args$DEBUG)){
@@ -648,7 +654,7 @@ score.wiseSW.CarGraph <- function (obj, score.type = NULL, score.rubric, revisio
 		   					# If more than one Action will look for a sequence of these actions and then start over.
 		### observation.t.length, .x.length: same as above but finds total duration(t) of action or total length of x
 		if (grepl("observation", score.type)){			
-			obs = obj$observations			
+			obs = obj.rev$observations			
 			if (!is.null(obs) && nrow(obs) > 0 && !is.null(score.rubric$Action.type) && length(score.rubric$Action.type) > 0){
 				score = 0
 				t.length.total = 0
@@ -775,11 +781,11 @@ score.wiseSW.Table <- function (obj, score.type = NULL, score.rubric, revision.n
 	while (looping){
 		looping <- FALSE
 		score <- NA
-		obj <- obj[[revision.number]]
+		obj.rev <- obj[[revision.number]]
 
 		if (!missing(score.type)){
 			if (score.type == "ruleRubric"){
-				return (scoreTable.ruleRubric(obj$table, score.rubric));
+				return (scoreTable.ruleRubric(obj.rev$table, score.rubric));
 			} else {
 				return (NA);
 			}
@@ -792,7 +798,7 @@ score.wiseSW.Table <- function (obj, score.type = NULL, score.rubric, revision.n
 			} else {
 				if (cascade.up){
 					revision.number <- revision.number + 1
-					if (revision.number > length(obj)) return (score)
+					if (revision.number > length(obj.rev)) return (score)
 				} else {
 					revision.number <- revision.number - 1
 					if (revision.number < 1) return (score)
@@ -821,11 +827,11 @@ score.wiseSW.MatchSequence <- function (obj, score.type = NULL, score.rubric, re
 	while (looping){
 		looping <- FALSE
 		score <- NA
-		obj <- obj[[revision.number]]
+		obj.rev <- obj[[revision.number]]
 
 		if (!missing(score.type)){
 			if (score.type == "ruleRubric"){
-				return (scoreMatchSequence.ruleRubric(obj$table, score.rubric));
+				return (scoreMatchSequence.ruleRubric(obj.rev$table, score.rubric));
 			} else {
 				return (NA);
 			}
@@ -1153,60 +1159,6 @@ scoreMysystem2.ruleRubric <- function (table, rubric, debug=FALSE){
 	### No rule found 
 	return (1)
 }
-#score(row,score.rubrics=rubrics.standard,as.data.frame.out=FALSE,debug=TRUE)
-
-#### FUNCTIONS FOR SCORING TABLE DATA ###########
-## For scoring graphs use a rubric in the following form:
-# rubric = list(rules = data.frame(), scores = data.frame())
-# the rules should be a data frame in the following format:
-#	 
-# rubric$rules = data.frame(column.1=character(),column.2=character(),require.all=logical(), stringsAsFactors=FALSE)
-# rubric$scores = data.frame(pattern = character(), score = numeric())
-# Will look for a match between column.1 and column.2 in rule and respective column in table, 
-# require.all determines whether we need all (both) columns to match or only one
-scoreTable.ruleRubric.old <- function (table, rubric, debug=FALSE){
-	R = logical();
-	cr = 1; ### we start looking from the first row 
-	for (r in 1:nrow(rubric$rules)){
-		rule = rubric$rules[r,]
-		matchFound = FALSE
-		if (cr <= nrow(table)){
-			for (r in cr:nrow(table)){
-				row = table[cr,]
-				## iterate through columns
-				for (c in grep("col",names(rule))){
-					matchFound = grepl(rule[,c], as.character(table[r, c]))
-					if (is.null(rule$require.all) || as.logical(rule$require.all)){
-						if (!matchFound){
-							break;
-						}
-					} else {
-						if (matchFound){
-							break;
-						}
-					}	
-				}
-				if (matchFound){
-					cr = r + 1
-					break;
-				}
-			}
-		}
-		R[[length(R)+1]] = matchFound
-	}
-	if (debug) print(R)
-	for (s in 1:nrow(rubric$scores)){
-		patternResult = eval(parse(text=rubric$scores$pattern[s]))
-		## if is logical and TRUE return a given score, if numerical just return value 
-		if (is.logical(patternResult) && patternResult){
-			return (rubric$scores$score[s]);
-		} else if (is.numeric(patternResult)) {
-			return (patternResult);
-		}
-	}
-	### No rule found 
-	return (1)
-}
 
 scoreTable.ruleRubric <- function (table, rubric, debug=FALSE){	
 	if (is.na(table) || nrow(table) == 0) return (NA)
@@ -1245,6 +1197,7 @@ scoreTable.ruleRubric <- function (table, rubric, debug=FALSE){
 		rule = rubric$rules[r,]
 		if (!is.null(rule$relation) && nchar(rule$relation) > 0){
 			pattern = rule$relation
+			if (debug) print(pattern)
 			# replace R[  with RVALS[
 			pattern = gsub("R[","RVALS[", pattern, fixed=TRUE)
 			# Replace labels in pattern with row index

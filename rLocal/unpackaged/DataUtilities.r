@@ -9,64 +9,153 @@
 # Only columns specified in "select" will be repeated, default is NULL which means to copy all columns
 # Columns in select.first are repeats of the same information, and so only will be taken from the first worksheet
 # intersperse TRUE means to paste repeat consecutively, FALSE means to block all columns from same worksheet    
-mergeWorksheetRows <- function (filename, by = "Workgroup.Id", select = NULL, select.first = character(), sheetIndices = NULL, sheetNames = NULL, filename.out=NULL, append=FALSE){
+# New: sheetIndices.embed allows - using by = "Wise.Id.1" - to find matches to any Id in an embedded sheet
+#  Also, if the embed sheet has more than one row per Id, multiple columns (representing revision) will be produced
+mergeWorksheetRows <- function (filename, by = "Wise.Id.1", select = NULL, select.first = character(), sheetIndices = NULL, sheetNames = NULL, select.embed = NULL, select.first.embed = character(), sheetIndices.embed = NULL, sheetNames.embed = NULL, filename.out=NULL, append=FALSE){
 	#detach('package:XLConnect', unload=TRUE)
 	library(xlsx)
 	wb <- loadWorkbook (filename)
 	sheets <- getSheets (wb)
+	if (length(sheets) == 0) stop("No worksheets were loaded, check spelling of path and, if appplicable, sheet names")
 	snames <- sapply(sheets,function(s)return(s$getSheetName()))
+	
 	if (!is.null(sheetIndices)){
-		sheetIndices <- (1:length(sheets))[(1:length(length(sheets))) %in% sheetIndices]
+		#sheetIndices <- (1:length(sheets))[(1:length(length(sheets))) %in% sheetIndices]
 	} else if (!is.null(sheetNames)){
 		sheetIndices <- which(snames %in% sheetNames)
-	} else {
-		stop("You need to provide either a vector of sheet indices (eg. 1:100) or sheet names")
 	}
-	
-	if (length(sheets) == 0) stop("No worksheets were loaded, check spelling of path and, if appplicable, sheet names")
-
-	## load first sheet and take selection of columns
-	sheet <- sheets[[sheetIndices[1]]]
-	obj <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
-	if (!is.null(select)){
-		select.in.sheet <- c(by, select.first, select)
-		select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj)]
-		obj <- obj[,select.in.sheet]
-	} else {
-		obj <- obj[,!grepl("^X\\.",names(obj))]
+	obj <- data.frame()
+	if (!is.null(sheetIndices)){
+		## load first sheet and take selection of columns
+		sheet <- sheets[[sheetIndices[1]]]
+		obj <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
+		if (!is.null(select)){
+			select.in.sheet <- c(by, select.first, select)
+			select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj)]
+			obj <- obj[,select.in.sheet]
+		} else {
+			obj <- obj[,!grepl("^X\\.",names(obj))]
+		}
+		# remove rows with missing ids
+		obj <- obj[!is.na(obj[,by])&nchar(as.character(obj[,by]))>0,]
+		# put sheet name at end
+		names(obj)[which(names(obj) != by)] <- paste(names(obj)[which(names(obj) != by)], " - ",snames[sheetIndices[1]],sep="")
+		## merge subsequent worksheets
+		if (length(sheetIndices) > 1){
+			for (s in 2:length(sheetIndices)){
+				sheet <- sheets[[sheetIndices[s]]]
+				obj.temp <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
+				if (!is.null(select)){
+					select.in.sheet <- c(by, select)
+					select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj.temp)]
+					obj.temp <- obj.temp[,select.in.sheet]
+				} else {
+					obj.temp <- obj.temp[,!grepl("^X\\.",names(obj.temp))]
+				}
+				obj.temp <- obj.temp[!is.na(obj.temp[,by])&nchar(as.character(obj.temp[,by]))>0,]
+				#print(nrow(obj.temp))
+				if (nrow(obj.temp) > 0){
+					# put sheet name at end
+					names(obj.temp)[which(names(obj.temp) != by)] <- paste(names(obj.temp)[which(names(obj.temp) != by)], " - ",snames[sheetIndices[s]],sep="")
+					obj <- merge (obj, obj.temp, by=by, all = TRUE, suffixes=c(paste(" - ",snames[sheetIndices[1]],sep=""), paste(" - ",snames[sheetIndices[s]],sep="")))			
+				}
+			}
+		}
 	}
-	obj <- obj[!is.na(obj[,by])&nchar(as.character(obj[,by]))>0,]
-	# put sheet name at end
-	names(obj)[which(names(obj) != by)] <- paste(names(obj)[which(names(obj) != by)], " - ",snames[sheetIndices[1]],sep="")
+	# connect with embedded
+	if (!is.null(sheetIndices.embed)){
+		#sheetIndices.embed <- (1:length(sheets))[(1:length(length(sheets))) %in% sheetIndices.embed]
+	} else if (!is.null(sheetNames)){
+		sheetIndices.embed <- which(snames %in% sheetNames)
+	} 
 
-	## merge subsequent worksheets
-	if (length(sheetIndices) > 1){
-		for (s in 2:length(sheetIndices)){
-			sheet <- sheets[[sheetIndices[s]]]
+	if (!is.null(sheetIndices.embed)){
+		max.rev <- 0
+		for (s in 1:length(sheetIndices.embed)){
+			sheet <- sheets[[sheetIndices.embed[s]]]
 			obj.temp <- suppressWarnings(readColumns(sheet, startColumn=1, endColumn=100,startRow=1, endRow=sheet$getLastRowNum()+1))
-			if (!is.null(select)){
-				select.in.sheet <- c(by, select)
+			if (!is.null(select.embed)){
+				select.in.sheet <- c(by, select.first.embed, select.embed)
 				select.in.sheet <- select.in.sheet[select.in.sheet %in% names(obj.temp)]
 				obj.temp <- obj.temp[,select.in.sheet]
 			} else {
 				obj.temp <- obj.temp[,!grepl("^X\\.",names(obj.temp))]
 			}
-			obj.temp <- obj.temp[!is.na(obj.temp[,by])&nchar(as.character(obj.temp[,by]))>0,]
-			# put sheet name at end
-			names(obj.temp)[which(names(obj.temp) != by)] <- paste(names(obj.temp)[which(names(obj.temp) != by)], " - ",snames[sheetIndices[s]],sep="")
-			obj <- merge (obj, obj.temp, by=by, all = TRUE, suffixes=c(paste(" - ",snames[sheetIndices[1]],sep=""), paste(" - ",snames[sheetIndices[s]],sep="")))
+			# which indices are Wise Id?
+			if (by == "Wise.Id.1"){
+				indices.id <- grep("wise\\.id", tolower(names(obj.temp)))
+			} else if (by == "Workgroup.Id") {
+				indices.id <- which(names(obj.temp) == "Workgroup.Id")
+			} else {
+				stop (paste("have not implemented by =", by))
+			}
+			
+			# get ids
+			if (nrow(obj) > 0){
+				ids <- obj[,by]
+				ids <- ids[!is.na(ids)]
+			} else {
+				ids <- obj.temp[,by]
+				ids <- ids[!is.na(ids)]
+				ids <- ids[!duplicated(ids)]
+				obj <- data.frame(TEMP = ids)
+				names(obj)[1] <- by
+			}
+			
+			# loop through ids already in main data, look for matches here
+			for (id in ids){
+				print(id)
+				if (length(indices.id) > 1){
+					obj.sub <- obj.temp[apply(obj.temp[,indices.id],1,function(x)id%in%x),]
+				} else if(length(indices.id) == 1){
+					obj.sub <- obj.temp[obj.temp[,indices.id] %in% id,]
+				} else {
+					stop("Incorrect 'by' column")
+				}
+				
+				if (nrow(obj.sub) > 0){
+					for (ri in 1:nrow(obj.sub)){
+						#print(paste(ri, "out of", nrow(obj.sub)))
+						# rename columns with revision numbers
+						row <- obj.sub[ri,]
+						names(row) <- paste(names(row),snames[[sheetIndices.embed[s]]],ri,sep=".")
+						index.obj <- which(names(obj) == by)
+						index.row <- indices.id[which(row[,indices.id] == id)]
+						print(row[,indices.id])
+						# if this a new revision add appropriate columns to obj
+						if (ri > max.rev){
+							obj <- merge(obj, row[0,], by.x=names(obj)[index.obj], by.y=names(row)[index.row], all = TRUE)
+							max.rev <- ri
+						}
+						
+						# now replace appropriate matching rows
+						matches <- as.numeric(as.character(obj[,index.obj]))==as.numeric(as.character(id))
+						matches[is.na(matches)] <- FALSE
+						repl <- names(row)[!(1:ncol(row) %in% indices.id)]
+						obj[matches,repl] <- row[,!(1:ncol(row) %in% indices.id)]
+					}
+				}
+			}
 		}
 	}
 
 	if (is.null(filename.out)){
 		filename.out <- paste(sub("(.*)?\\..*","\\1",filename),"-merged",sub("(.*)?(\\..*)","\\2",filename),sep="")
 	}
+	# cleanup names
+	name <- gsub("\\.", " ", names(obj))
+	names(obj) <- gsub("  *"," ", name)
+
 	write.xlsx(obj, filename.out,sheetName="Merged", append=append, row.names=FALSE)
 }
 # example
 #mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\FINAL_Thermo-2013-pre-post-crater-background.xlsx", by = "Wise.Id.1", sheetIndices =  1:3)
 #mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Ocean bottom trawling\\Spring2014\\Excel-scored\\MASTER_OBT-Spring2014-pre-post-scored.xlsx", by = "Wise.Id.1", sheetIndices =  1:4)
-mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Webb_Mitosis_KIvST.xlsx", by = "Wise.Id.1", sheetIndices =  1:2)
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Webb_Mitosis_KIvST.xlsx", by = "Wise.Id.1", sheetIndices =  1:2)
+mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Mosteiro-Thermo-Cohort 1.xlsx", by = "Wise.Id.1", sheetIndices =  1:2, sheetIndices.embed = 3)
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\MASTER_OBT-Spring2014-pre-post-scored-merged_modified.xlsx", by = "Wise.Id.1", sheetIndices =  1:3, sheetIndices.embed = 4)
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Spoons (Embedded) Cohort 2 ST-KI 2 rows.xlsx", by = "Workgroup.Id", sheetIndices.embed = 1)
+#mergeWorksheetRows(filename = "C:\\Users\\Jonathan Vitale\\Documents\\DataAnalysis\\WISE\\Scoring\\Coal (Embedded) Cohort 2 ST-KI 2 rows.xlsx", by = "Workgroup.Id", sheetIndices.embed = 1)
 
 ## Will score a data file stored
 ## TODO, expand type of input files

@@ -43,11 +43,13 @@ as.wiseSW.wiseSW <- function (sw, row, ...){
 		vals <- row[ri,indices]
 		if (nchar(vals[1])==0) vals[1] <- " "
 		vals <- vals[nchar(vals) > 0]
-		if (vals[1]==" ") vals[1] <- ""
+		print(vals[1])
+		if (!is.na(vals[1] && vals[1]==" ") vals[1] <- ""
 		sw[[length(sw)+1]] <- vals
 	}
 	return(sw)
 }
+gcc <- getRevisionNumberInStep(gcc, as.data.frame.out=TRUE)
 
 as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student\\.Work"){
 	### which indices contain Student Work?
@@ -61,18 +63,21 @@ as.wiseSW.wiseSW.AssessmentList <- function(sw, row, colNames = "Student\\.Work"
 	
 	for (ri in 1:nrow(responses)){
 		lindex <- length(sw) + 1
-		# This type of step may have work on all columns of Student.Work
 		vals <- character()
 		for (ci in 1:ncol(responses)){
 			val <- responses[ri, ci]
 			if (is.na(val) || val == " " || val == "N/A") val = ""
 			vals <- c(vals, val)
 		}
-		vals <- vals[nchar(vals)>0]
+		val.chars <- nchar(vals)
+		# remove trailing empties
+		vals <- vals[rev(length(vals) - which(cumsum(rev(nchar(vals)))>0) + 1)]
+		#vals <- vals[nchar(vals)>0]
 		sw[[lindex]] <- vals
 	}
 	return(sw)
 }
+#as.wiseSW(obj.sub[r,]);
 
 as.wiseSW.wiseSW.MatchSequence <- function (sw, row){
 	library(rjson)
@@ -235,8 +240,8 @@ as.wiseSW.wiseSW.Mysystem2 <- function (sw, row, colNames = "Student\\.Work\\.Pa
 	return (sw)
 }
 
-as.wiseSW.wiseSW.Note <- function (sw, row, colNames = "Student.Work"){
-	return (as.wiseSW.wiseSW.OpenResponse(sw,row,colNames))
+as.wiseSW.wiseSW.Note <- function (sw, row){
+	return (as.wiseSW.wiseSW.OpenResponse(sw,row))
 }
 as.wiseSW.wiseSW.Box2dModel <- function(sw, row, colNames = "Student\\.Work\\.Part\\.1"){
 	#### which indices contain Student Work?

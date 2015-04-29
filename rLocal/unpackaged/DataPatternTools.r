@@ -101,10 +101,11 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
    	}
    	# expand columns
    	obj <- expandMultipleResponses(obj)
-
+   	
 	agg = data.frame()
 	for (s in 1:length(Step.Id)){
 		step.id = Step.Id[s]
+		#print(step.id)
 		obj.step = subset(obj, obj[,step.identifier] == step.id)
 		if (by == "Workgroup.Id") {
 			agg2 = suppressWarnings(aggregate(obj.step,by=list(Workgroup.Id),select.first=c("Condition","Teacher.Login"),select.numerical=lapply(ColName,as.name), FUNS.numerical=FUNS.numerical, include.median.splits=include.median.splits))
@@ -162,7 +163,6 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
 		for (n in names.post){	
 			agg[ ,sub(".Posttest",".Gain",n)] = 
 			tryCatch({agg[,n] - agg[ ,sub(".Posttest",".Pretest",n)]}, error=function(e){
-				print(n);
 				print(sub(".Posttest",".Pretest",n));
 				return (NULL)
 				}
@@ -249,7 +249,7 @@ magna.carta.holy.grail.wisedata.frame = function (obj, by = "Workgroup.Id", sele
 	
    	return(agg);
 }
-magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last") )
+# magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last") )
 
 
 readForColValues.magna <- function (agg, sourceFile, sourceColNames.pattern = "Score|C\\.", by="Wise.Id.1", step.identifier="Step.Id", includes.formulas = TRUE, ...){

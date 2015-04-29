@@ -609,8 +609,9 @@ scoreTransitionGraph = function(df, Step.Num.1 = NA, Step.Num.2 = NA, Step.Num.N
 	}
 }
 
-# library(plotrix)
+ 
 plotNavigation = function(sdf, Step.Num.NoBranch=sort(unique(sdf$Step.Num.NoBranch)), by.Workgroup.Id=TRUE, by.Time=FALSE, ylim=c(as.numeric(as.character(Step.Num.NoBranch[1])), as.numeric(as.character(tail(Step.Num.NoBranch,1)))), show.score.colName="Research.Score", ...){
+	library(plotrix)
 	object = as.list(substitute(list(...)))[-1L]
 	### make sure there is a single individual
 	Step.Count.NoBranch = 1:length(Step.Num.NoBranch)
@@ -642,8 +643,9 @@ plotNavigation = function(sdf, Step.Num.NoBranch=sort(unique(sdf$Step.Num.NoBran
 	}
 	### translate from step number to step count
 	ylim = c(match(ylim[1],Step.Num.NoBranch), match(ylim[2],Step.Num.NoBranch))
-	plot(xvals, yvals, xlim = xlim, ylim=ylim, yaxt="n", type="l", xlab = xlab, ylab="Step", col="#666666", xpd = NA, ...)
-	axis(2, at = Step.Count.NoBranch, labels=Step.Num.NoBranch)
+	plot(xvals, yvals, xlim = xlim, ylim=ylim, yaxt="n", type="l",lwd=2, xlab = xlab, ylab="Step", col="#666666", xpd = NA, ...)
+	axis(2, at = Step.Count.NoBranch, labels=as.character(Step.Num.NoBranch),las=1,cex.axis=0.5)
+	abline(h=Step.Count.NoBranch, col="#AAAAAA")
 	prevxpos = -max(xvals)
 	prevypos = -max(yvals)
 	if (!is.null(show.score.colName) &&!is.null(show.score.colName) && show.score.colName %in% names(sdf)){
@@ -684,6 +686,7 @@ plotNavigation = function(sdf, Step.Num.NoBranch=sort(unique(sdf$Step.Num.NoBran
 		}
 	}
 }
+plotNavigation(subset(wise,Wise.Id.1==wid[1]))
 
 ### Given an aggregrated data frame
 ### Show comparison of condition across all vars

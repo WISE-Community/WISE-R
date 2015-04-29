@@ -105,6 +105,12 @@ read.xlsx.wiseDir <- function(dir, sheetIndices = 1:1000, fileIndices = NULL, hi
 	if (length(character.columns)>0) cnames[cnames%in%character.columns] <- "OTHER"
 	df <- setColClasses.final(df, cnames);
 	df <- subset(df, !is.na(as.numeric(as.character(Wise.Id.1))))
+
+	#not sure why i need to do this but
+	gcc.RM$Wise.Id.1 <- as.factor(as.numeric(as.character(gcc.RM$Wise.Id.1)))
+	gcc.RM$Wise.Id.2 <- as.factor(as.numeric(as.character(gcc.RM$Wise.Id.2)))
+	gcc.RM$Wise.Id.3 <- as.factor(as.numeric(as.character(gcc.RM$Wise.Id.3)))
+
 	class(df) = c("wisedata.frame",class(df));
 	return(df)
 }
@@ -148,9 +154,6 @@ read.xlsx.wise <- function(filename, sheetIndices = 1:1, sheetName=NULL, charact
 
 	df <- collapseMultipleRevisions(df)
 	# create a Step.Num column
-	df$Step.Num <- getStepNum(df)
-	df$Step.Num.NoBranch <- collapseStepNumBranches(df$Step.Num)
-	## create a Step.Num column
 	df$Step.Num <- getStepNum(df)
 	df$Step.Num.NoBranch <- collapseStepNumBranches(df$Step.Num)
 	# place revision numbers on this data frame
@@ -241,12 +244,20 @@ updateMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
 	# get just those columns that have the Response # indicator
 	indices <- as.numeric(which(apply(df, 2, function(c){return(length(grep(regexp.split,c))>0)})))
 	#print(names(df[,indices]))
-	if (length(indices) > 0){
+	if (length(indices) > 1){
 		#grep("Student\\.Work",names(df))
 		# make sure that the number of responses in student work part 1 matches # of responses in other columsn
 		nresponses.1 <- sapply(strsplit(df$Student.Work.Part.1, regexp.split),function(x)return(max(length(x)-1,0)))
-		work <- sapply(df[,indices], as.character)
-		nresponses <- apply(work,c(1,2),function(x){y<-strsplit(x, regexp.split)[[1]];return(max(0,length(y)-1))})
+		work <- df[,indices]
+		for (ci in 1:ncol(work)){
+			work[,ci] <- as.character(work[,ci])
+		}
+		print(work)
+		# if class is character then we do a single pass through
+		nresponses <- apply(work,c(1,2),function(x){
+			y<-strsplit(x, regexp.split)[[1]];
+			return(max(0,length(y)-1))
+		})
 		nresponses.toadd <- nresponses.1 - nresponses
 		for (ci in 1:ncol(work)){
 			work.col <- work[nresponses.toadd[,ci]>0,ci]
@@ -263,26 +274,31 @@ updateMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
 		df[,indices] <- work
 		return (df);
 	}
-	return (NULL)
+	return (df)
 }
+gcc <- getRevisionNumberInStep(gcc, as.data.frame.out=TRUE)
+
 #wise2 <- updateMultipleResponses(wise)
 
 ## Given a wisedata.frame will iterate through all rows looking for multiple student responses that are concatatenated into a single column
 ## a row will be repeated for each response
 ## regexp.split is the regular expression used to split responses
-expandMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
+expandMultipleResponses <- function (df, regexp.split = " *Response #[0-9]+: "){
 	if (length(which(class(df)=="wisedata.frame")) == 0){print("You need to use a valid wise data frame."); return (NULL)}
 	# get just those columns that have the Response # indicator
 	indices <- as.numeric(which(apply(df, 2, function(c){return(length(grep(regexp.split,c))>0)})))
-	print(names(df[,indices]))
 	if (length(indices) > 0){
 		if (nrow(subset(df,grepl("Response #1:",Student.Work.Part.1))) != nrow(subset(df,grepl("Response #1:",Student.Work.Part.2)))){
 			df <- updateMultipleResponses(df, regexp.split = regexp.split)
+			indices <- as.numeric(which(apply(df, 2, function(c){return(length(grep(regexp.split,c))>0)})))
 		}
+		
 		# make sure every student work part 1 has some value
 		max.rev <- 1
 		Student.Work.expanded <- do.call("cbind", lapply(indices,function(i){
 			#print(names(df)[i])
+			#print(i)
+			#print(df[,i])
 			df[!is.na(df[,i])&df[,i]=="",i] <- " "; 
 			u <- unlist(strsplit(df[,i],regexp.split)); 
 			u <- u[nchar(u)>0]; 
@@ -302,14 +318,27 @@ expandMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
 		returndf <- df[rep(seq_len(nrow(df)),expanded),]
 		# convert columns if actually numeric
 		Student.Work.expanded.num <- apply (Student.Work.expanded, 2, function(x){
-			if (length(suppressWarnings(as.numeric(unique(x))))+1 >= length(unique(x))){
-				return (suppressWarnings(as.numeric(x)))
-			} else {
-				return (x)
+			# if there is one value check to see if it is NA
+			if (length(x) == 1){
+				if(is.na(suppressWarnings(as.numeric(x)))) { 
+					return (x)
+				} else {
+					return (suppressWarnings(as.numeric(x)))
+				}
+			} 
+			if (length(x) > 1){
+				#print(length(unique(x)))
+				#print(length(unique(suppressWarnings(as.numeric(x)))))
+				# is the number of unique values about the same as total unique
+				if (length(unique(suppressWarnings(as.numeric(x)))) >= length(unique(x))){
+					return (suppressWarnings(as.numeric(x)))
+				} else {
+					return (x)
+				}
 			}
 		})
 		# substitue expanded student work for repeated student work
-		print(apply(Student.Work.expanded.num, 2, class))
+		#print(apply(Student.Work.expanded.num, 2, class))
 		returndf[,indices] <- Student.Work.expanded.num
 		
 		return (returndf)
@@ -317,7 +346,10 @@ expandMultipleResponses <- function (df, regexp.split=" *Response #[0-9]+: "){
 		return (df)
 	}
 }
-wise.exp <- expandMultipleResponses(wise)
+gcc <- getRevisionNumberInStep(gcc, as.data.frame.out=TRUE)
+
+#expandMultipleResponses(row)
+#wise.exp <- expandMultipleResponses(wise)
 
 # expand each workgroup into the number of participants,
 # If one Wise User, then row remains the same
@@ -449,7 +481,7 @@ transferColValues <- function (targetDF, sourceDF, targetColNames="Student.Work.
 	}
 	return (targetDF);
 }
-wise <- readForColValues.prepost (wise, paste(dir.scored,"GraphingStories-embedded-Fall2014-jv.xlsx",sep=""), postfixes = c("\\.Initial","\\.Final"), sourceColNames.except = names(wise.vijay.explain), sheetIndex=1)
+#wise <- readForColValues.prepost (wise, paste(dir.scored,"GraphingStories-embedded-Fall2014-jv.xlsx",sep=""), postfixes = c("\\.Initial","\\.Final"), sourceColNames.except = names(wise.vijay.explain), sheetIndex=1)
 
 ### FEATURE FUNCTIONS - intended to add new columns to wise data frame providing more information:
 
@@ -747,7 +779,9 @@ getRevisionNumberInStep <- function(df, as.data.frame.out = FALSE){
 # awiseDF = :? (wiseDF, by=list(Workgroup.Id), select.first = c(Project.Id, Run.Id, Wise.Id.1, Wise.Id.2), c(Teacher.Score, Research.Score), c("sum", "mean", "sd", "median", "min", "max")); #awiseDF[150:170,]
 aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first = c(Project.Id, Parent.Project.Id, Run.Id, Wise.Id.1, Wise.Id.2, Wise.Id.3, Condition), select.numerical, FUNS.numerical, include.median.splits = FALSE, ..., simplify = TRUE){
 	df = x;
+	df.exp <- expandMultipleResponses(df)		
 	class(df) = "data.frame";  # this way when we call aggregate it won't recursivley call this.
+	class(df.exp) = "data.frame";  # this way when we call aggregate it won't recursivley call this.
 	# create a new data frame with just by factor
 	first =  function(fdf){return(fdf[1])}
 	by_call = substitute(by);
@@ -783,9 +817,9 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 		} else if (class(vars)[1] != "integer" && class(vars)[1] != "numeric"){
 			vars = which(names(df) %in% vars)
 		}
-		# we'll be using and expanded df to account for multiple revisions
-		df.exp <- expandMultipleResponses(df)		
-
+		# make sure these are actually numerical
+		vars <- vars[sapply(df.exp[,vars],is.numeric)]
+				
 		for (fun in FUNS.numerical){			
 			## special for median split
 			if (fun == "first"){
@@ -804,10 +838,10 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 				adf[2:ncol(adf)] = adf[2:ncol(adf)] - adf.f[2:ncol(adf.f)] 
 				adf = merge(subset(odf,TRUE,b), adf, all.x=TRUE, all.y=FALSE, suffixes=c("",""))
 			} else {
-				df.select.numerical = df.exp[,vars];
-				print (names(df.select.numerical))
-				print (fun)
-				adf = aggregate(df.select.numerical, by, FUN = fun, na.rm = TRUE, simplify=TRUE);
+				#print(fun)
+				df.select.numerical = df.exp[,vars]
+				#print (names(df.select.numerical)[!sapply(df.select.numerical,is.numeric)])
+				adf = aggregate(df.select.numerical, by, FUN = fun, na.rm = TRUE, simplify=TRUE)
 			}
 			## if there is more than one numerical function attach the name of the funciton
 			#if (length(FUNS.numerical) > 1){ 
@@ -858,7 +892,7 @@ aggregate.wisedata.frame <- function (x, by = list(Workgroup.Id), select.first =
 	class(odf) = c("aggwisedata.frame", "wisedata.frame", "data.frame");
 	return(odf);
 }
-magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last"))
+# magna <- magna.carta.holy.grail(subset(wise, Step.Id%in%c(items.pretest,items.posttest,items.unit)), by="Wise.Id.1", step.identifier = "Step.Id", select.numerical = sapply(grep("Index|Time\\.Spent\\.Seconds|Rev\\.Num|^URev\\.Num|Research\\.Score|^KI\\.|^C\\.|.*?Score|NWords",names(wise[,!grepl("((KI)|C|(Score))?.*2",names(wise))]), value=TRUE),as.name), FUNS.numerical = c("sum", "mean","min", "max", "first","last", "first.to.last") )
 
 aggregate.aggwisedata.frame <- function (x, by, select.first, select.numerical, FUNS.numerical, ..., simplify = TRUE){
 	df = x; class(df) = c("wisedata.frame", "data.frame");
